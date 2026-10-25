@@ -72,6 +72,14 @@ def init(connect):
                     )""")
         c.execute("""CREATE INDEX IF NOT EXISTS idx_joke_sent_user
                      ON joke_sent(user_id, serial DESC)""")
+        c.execute("""CREATE TABLE IF NOT EXISTS joke_delivery(
+                     user_id INTEGER NOT NULL,
+                     meme_key TEXT NOT NULL,
+                     joke_id TEXT NOT NULL,
+                     PRIMARY KEY(user_id,meme_key)
+                     )""")
+        c.execute("""CREATE INDEX IF NOT EXISTS idx_joke_delivery_id
+                     ON joke_delivery(joke_id)""")
 
 
 def select(connect,user_id,risk,serial):
@@ -98,11 +106,34 @@ def select(connect,user_id,risk,serial):
         eligible = [j for j in by_topic()[risk] if j["id"] not in latest]
         if not eligible:
             eligible = list(by_topic()[risk])
+    # Actual reader votes suppress consistently disliked jokes across the
+    # audience, instead of relying on an invented "AI humor" score.
+    try:
+        with connect() as c:
+            vote_rows=c.execute("""
+                SELECT d.joke_id,
+                       SUM(CASE WHEN v.vote=-1 THEN 1 ELSE 0 END) AS bad,
+                       SUM(CASE WHEN v.vote=1 THEN 1 ELSE 0 END) AS good
+                FROM joke_delivery d
+                JOIN meme_votes v ON v.user_id=d.user_id
+                                 AND v.meme_key=d.meme_key
+                GROUP BY d.joke_id
+                HAVING COUNT(*)>=3
+            """).fetchall()
+        rejected={row[0] for row in vote_rows
+                  if row[1]>=3 and row[1]>=row[2]*2}
+        improved=[j for j in eligible if j["id"] not in rejected]
+        if improved:
+            eligible=improved
+    except Exception as exc:
+        # Older database versions may not yet have rating tables; never block
+        # a meme because the quality feedback query failed.
+        print(f"Joke feedback unavailable: {type(exc).__name__}",flush=True)
     rng = random.Random(f"{user_id}:{serial}:{risk}:3000")
     return eligible[rng.randrange(len(eligible))]
 
 
-def mark_sent(connect,user_id,joke_id,serial):
+def mark_sent(connect,user_id,joke_id,serial,meme_key=None):
     with connect() as c:
         c.execute("""INSERT INTO joke_sent(user_id,joke_id,serial)
                      VALUES(?,?,?)
@@ -110,6 +141,10 @@ def mark_sent(connect,user_id,joke_id,serial):
                      DO UPDATE SET serial=excluded.serial,
                                    sent_at=CURRENT_TIMESTAMP""",
                   (user_id,joke_id,serial))
+        if meme_key:
+            c.execute("""INSERT OR REPLACE INTO joke_delivery
+                         (user_id,meme_key,joke_id) VALUES(?,?,?)""",
+                      (user_id,meme_key,joke_id))
 
 
 def count():
