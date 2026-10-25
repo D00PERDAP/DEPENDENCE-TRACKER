@@ -34,6 +34,10 @@ COMMUNITIES = [
 KEYWORDS = re.compile(r"наркот|нарком|мефедрон|мефчик|солев(ой|ые|ик)|упорот|под веществ|психоактив|зависимост|передоз|ломк|трезвост|похмел|запой", re.I)
 
 SEEDS = [
+    ("general", "Мемариум — тематическая подборка про наркоманов", "https://memarium.fun/memy-pro/narkomanov/"),
+    ("general", "JoyReactor — мемы про наркотики", "https://reactor.cc/search/Наркотики+мемы"),
+    ("general", "Мэмисон — мемы про мефедрон и насвай", "https://t.me/s/memsearch?before=7758"),
+    ("general", "Русский мем про соль и VPN", "https://ruanekdot.ru/news/slova/2026-08-20-89161"),
     ("general", "ооаоаа) ммм)) — постироничный наркоманский мем", "https://memepedia.ru/ooaoaa-mmm/"),
     ("general", "Ловите наркомана — крокодил Гена", "https://memepedia.ru/lovite-narkomana/"),
 ]
