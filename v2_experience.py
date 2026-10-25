@@ -475,12 +475,39 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 "сильный перегрев или спутанность — нужна скорая.",
                 [
                     [("🚨 Экстренно · 112", "v2:emergency")],
+                    [("💊 Выбрать вещество", "v2:prepchoose")],
                     [("🧘 Прийти в себя", "v2:selfhelp"),
                      ("🩺 Проверить симптомы", "v2:questions")],
                     [("🌙 Перед тяжёлой ночью", "v2:nightprep"),
                      ("☀️ Восстановление", "v2:recovery")],
                     [("🏠 На базу", "v2:home")],
                 ])
+
+        if action == "prepchoose":
+            rows = [[(name, f"v2:prep:{i}")]
+                    for i, name in enumerate(safety.SUBSTANCES)]
+            rows.append([("⬅️ К помощи", "v2:safety")])
+            return await panel(q,
+                "💊 ПОМОЩЬ ПО ВЕЩЕСТВУ\n\n"
+                "Выбери вещество, чтобы увидеть основные риски и "
+                "признаки опасного состояния. Без инструкций по употреблению.",
+                rows)
+
+        if action == "prep":
+            try:
+                i = int(param)
+                if i < 0 or i >= len(safety.SUBSTANCES):
+                    raise ValueError()
+                substance = safety.SUBSTANCES[i]
+            except (ValueError, IndexError):
+                return await panel(q, "Выбери вещество из списка.",
+                    [[("⬅️ К списку", "v2:prepchoose")]])
+            return await panel(q, safety.preparation_card(substance), [
+                [("🧘 Самопомощь", "v2:selfhelp"),
+                 ("🩺 Симптомы", "v2:questions")],
+                [("⬅️ К веществам", "v2:prepchoose"),
+                 ("🆘 Помощь", "v2:safety")],
+            ])
 
         if action == "selfhelp":
             return await panel(q,
