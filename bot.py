@@ -198,24 +198,28 @@ async def meme_vote(q: CallbackQuery):
 
 @dp.message(Command("meme_queue"))
 async def meme_queue(m: Message):
-    """Private review of discovered images. Set ADMIN_IDS to Telegram numeric IDs."""
+    """Admin-only queue: third-party images never auto-publish without rights."""
     admins = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
     if not m.from_user or m.from_user.id not in admins:
         return
-    import json
-    from meme_harvester import INDEX, ROOT
+    from meme_review_store import read as read_review
+    from meme_harvester import ROOT
     from aiogram.types import FSInputFile
-    items = json.loads(INDEX.read_text(encoding="utf-8")) if INDEX.exists() else []
-    pending = [x for x in items if x["status"] == "needs-rights-review"]
+    try:
+        pending = [x for x in read_review() if x.get("status") == "needs-rights-review"]
+    except (OSError, ValueError) as exc:
+        return await m.answer(f"Очередь повреждена: {type(exc).__name__}. Проверь файл на сервере.")
+    pending.sort(key=lambda item: (-int(item.get("relevance", 0)), item.get("id", 0)))
     if not pending:
-        return await m.answer("Очередь пуста.")
+        return await m.answer("Очередь пуста. Оригинальные мемы публикуются автоматически.")
     for item in pending[:5]:
-        path = ROOT / item["preview"]
-        if path.is_file():
-            await m.answer_photo(FSInputFile(path), caption=f"#{item['id']} • Проверь права и содержание.\\nИсточник: {item['source']}"[:1024],
-                                 reply_markup=kb([[("✅ Проверил права и мем", f"mapprove:{item['id']}"),
-                                                   ("❌ Отклонить", f"mreject:{item['id']}")]]))
-    await m.answer(f"Ожидают проверки: {len(pending)}. Показаны первые пять. /meme_queue — следующие после обработки.")
+        path = (ROOT / item["preview"]).resolve()
+        if path.is_file() and path.is_relative_to((ROOT / "data" / "meme_review").resolve()):
+            await m.answer_photo(FSInputFile(path),
+                caption=f"#{item['id']} • Проверь, что мем по теме, смешной и у тебя есть права. Источник: {item['source']}"[:1024],
+                reply_markup=kb([[("✅ Права и содержание проверены", f"mapprove:{item['id']}"),
+                                  ("❌ Не подходит", f"mreject:{item['id']}")]]))
+    await m.answer(f"Ждут проверки: {len(pending)}. Показаны первые 5.")
 
 
 @dp.callback_query(F.data.startswith("mapprove:") | F.data.startswith("mreject:"))
@@ -223,36 +227,40 @@ async def review_meme(q: CallbackQuery):
     admins = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
     if q.from_user.id not in admins:
         return await q.answer("Нет доступа", show_alert=True)
-    import json
-    import hashlib
     import shutil
-    from meme_harvester import INDEX, ROOT
+    from meme_review_store import transact
+    from meme_harvester import ROOT
     try:
         item_id = int(q.data.partition(":")[2])
     except ValueError:
         return await q.answer("Неверный ID")
-    items = json.loads(INDEX.read_text(encoding="utf-8")) if INDEX.exists() else []
-    item = next((x for x in items if x["id"] == item_id and x["status"] == "needs-rights-review"), None)
-    if not item:
-        return await q.answer("Уже обработано", show_alert=True)
-    if q.data.startswith("mapprove:"):
-        source = (ROOT / item["preview"]).resolve()
-        review_root = (ROOT / "data" / "meme_review").resolve()
-        if not source.is_file() or not source.is_relative_to(review_root):
-            return await q.answer("Файл отсутствует", show_alert=True)
-        target_dir = ROOT / "assets" / "memes" / "general"
-        target_dir.mkdir(parents=True, exist_ok=True)
-        digest = hashlib.sha256(source.read_bytes()).hexdigest()
-        target = target_dir / (digest + ".jpg")
-        if not target.exists():
-            shutil.copyfile(source, target)
-        item["status"] = "approved"
-        item["file"] = str(target.relative_to(ROOT))
-    else:
-        item["status"] = "rejected"
-    tmp = INDEX.with_suffix(".tmp")
-    tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(INDEX)
+    def update(items):
+        item = next((x for x in items
+                     if x.get("id") == item_id and x.get("status") == "needs-rights-review"), None)
+        if not item:
+            return False
+        if q.data.startswith("mapprove:"):
+            source = (ROOT / item["preview"]).resolve()
+            directory = (ROOT / "data" / "meme_review").resolve()
+            if not source.is_file() or not source.is_relative_to(directory):
+                raise ValueError("Исходный файл отсутствует")
+            target_dir = ROOT / "assets" / "memes" / "general"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            target = target_dir / (digest + ".jpg")
+            if not target.exists():
+                shutil.copyfile(source, target)
+            item["status"] = "approved"
+            item["file"] = str(target.relative_to(ROOT))
+        else:
+            item["status"] = "rejected"
+        return True
+    try:
+        updated = transact(update)
+    except (OSError, ValueError) as exc:
+        return await q.answer(f"Ошибка: {type(exc).__name__}", show_alert=True)
+    if not updated:
+        return await q.answer("Этот мем уже обработан", show_alert=True)
     await q.answer("Сохранено")
     await q.message.edit_reply_markup(reply_markup=None)
 
