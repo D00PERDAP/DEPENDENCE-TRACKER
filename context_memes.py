@@ -95,13 +95,14 @@ SUBSTANCE_EXTRAS = {
 
 
 def candidates(substance, risk, assets=ASSETS):
-    """Rank by specificity; do not mix e.g. alcohol content with mephedrone."""
+    """Only real picture meme files. Exact topic first, then broader safe subjects."""
     sub = SUB_KEYS.get(substance, "general")
     risk = risk if risk in RISK_KEYS else "general"
     paths = [
         Path(assets) / "contextual" / sub / risk,
         Path(assets) / "contextual" / sub / "general",
         Path(assets) / "contextual" / "general" / risk,
+        Path(assets) / "contextual" / "general" / "general",
     ]
     if risk in LEGACY_CATEGORIES:
         paths.append(Path(assets) / LEGACY_CATEGORIES[risk])
@@ -112,8 +113,12 @@ def candidates(substance, risk, assets=ASSETS):
             continue
         files = [p for p in directory.iterdir()
                  if p.is_file() and p.suffix.lower() in IMAGES
-                 and not p.name.startswith("original_") and p.stat().st_size > 0]
+                 and not p.name.startswith("original_") and p.stat().st_size > 500]
         if files:
+            # Admin-approved images first, then permissively licensed photo memes.
+            # The no-network illustrated scene generator is the final fallback.
+            files.sort(key=lambda p: (0 if not p.name.startswith(("photo_", "illustrated_")) else
+                                      1 if p.name.startswith("photo_") else 2, p.name))
             return files
     return []
 
@@ -168,29 +173,44 @@ def import_admin_photo(photo_bytes, substance_key, risk_key, admin_id, assets=AS
     return dest
 
 
+def choose_photo(substance, risk, connect, uid, meme_key):
+    """Choose a photo; dislike history cannot force a text fallback."""
+    paths = candidates(substance, risk)
+    if not paths:
+        return None
+    recent, dislikes = set(), set()
+    with connect() as c:
+        recent = {r[0] for r in c.execute(
+            "SELECT meme_key FROM meme_sends WHERE user_id=? ORDER BY id DESC LIMIT 25",
+            (uid,)).fetchall()}
+        dislikes = {r[0] for r in c.execute(
+            """SELECT meme_key FROM meme_votes GROUP BY meme_key
+               HAVING COUNT(*) >= 4 AND SUM(CASE WHEN vote=-1 THEN 1 ELSE 0 END)
+               * 1.0 / COUNT(*) >= .75""").fetchall()}
+    valid = [p for p in paths if meme_key(p) not in dislikes]
+    if not valid:
+        return None
+    fresh = [p for p in valid if meme_key(p) not in recent]
+    # Prefer approved photos, but rotate among recently unseen candidates.
+    return random.choice(fresh or valid)
+
+
 async def send(message, uid, substance, risk, connect, meme_key, record_meme, meme_buttons):
-    """Send one suitable meme immediately, or an honest brief text-only joke."""
+    """Guarantee meme output is an image or an honest error, never a text joke."""
+    from photo_memes import ensure_pack
+    import asyncio
     options = candidates(substance, risk)
-    if options:
-        with connect() as c:
-            recent = {r[0] for r in c.execute(
-                "SELECT meme_key FROM meme_sends WHERE user_id=? ORDER BY id DESC LIMIT 25",
-                (uid,)).fetchall()}
-            disliked = {r[0] for r in c.execute(
-                """SELECT meme_key FROM meme_votes GROUP BY meme_key
-                   HAVING COUNT(*) >= 4 AND SUM(CASE WHEN vote=-1 THEN 1 ELSE 0 END)
-                   * 1.0 / COUNT(*) >= .75"""
-            ).fetchall()}
-        options = [p for p in options if meme_key(p) not in disliked]
-        fresh = [p for p in options if meme_key(p) not in recent]
-        chosen = random.choice(fresh or options) if options else None
-        if chosen is not None:
-            await message.answer_photo(
-                FSInputFile(chosen),
-                caption=f"🎭 {substance} • {risk} | без нравоучений",
-                reply_markup=meme_buttons(chosen),
-            )
-            record_meme(uid, chosen)
-            return True
-    await message.answer("🎭 " + joke(substance, risk))
-    return False
+    if not options:
+        # First-run offline pack requires no network and is safe to generate lazily.
+        await asyncio.to_thread(ensure_pack)
+    chosen = choose_photo(substance, risk, connect, uid, meme_key)
+    if chosen is None:
+        # Can't call a text joke a picture meme. Do not fabricate success.
+        await message.answer("Не могу показать картинку: библиотека изображений пока недоступна. "
+                             "Попробуй ещё раз или сообщи администратору.")
+        return False
+    await message.answer_photo(FSInputFile(chosen),
+        caption="🎭 Мем • не делай глупостей",
+        reply_markup=meme_buttons(chosen))
+    record_meme(uid, chosen)
+    return True
