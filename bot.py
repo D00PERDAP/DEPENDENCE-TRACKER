@@ -14,7 +14,7 @@ from aiogram import Bot, Dispatcher, F, BaseMiddleware
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile, BotCommand
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile, BotCommand, InputMediaAnimation, FSInputFile
 from dotenv import load_dotenv
 from meme_studio import ensure_catalog
 import context_memes
@@ -529,10 +529,41 @@ async def home(message, uid):
         ensure_preset(c, uid)
         count = len(picked(c, uid))
     if session:
-        text = f"💀 НЕ НАТВОРИ ДЕЛОВ\n\n🔴 Сопровождение включено, вацок.\nТвоих запретов: {count}\n\nЕсли стало плохо — без шуток, жми помощь."
+        text = (
+            "🦅 МАГА НА СВЯЗИ, ВАЦОК!\n\n"
+            f"🔴 Сопровождение включено. Твоих правил: {count}.\n"
+            "Если стало плохо — жми помощь, тут без шуток."
+        )
     else:
-        text = "💀 НЕ НАТВОРИ ДЕЛОВ\n\nСалам, бродяга! 🦅 Включай сопровождение, устанавливай правила или проверяй состояние.\nЖи есть, без лишнего базара!"
-    await display(message, text, home_buttons(bool(session), is_meme_admin_id(uid)))
+        text = (
+            "🦅 САЛАМ, БРОДЯГА! МАГА НА СВЯЗИ!\n\n"
+            "Выбирай раздел, брат. Главное — не натвори делов! 😂"
+        )
+    markup = home_buttons(bool(session), is_meme_admin_id(uid))
+    intro = Path(__file__).resolve().parent / "assets" / "maga_menu_intro.gif"
+    if not intro.is_file():
+        return await display(message, text, markup)
+
+    try:
+        if message.animation or message.photo or message.video:
+            await message.edit_media(
+                InputMediaAnimation(media=FSInputFile(intro), caption=text),
+                reply_markup=markup,
+            )
+        else:
+            # Telegram cannot edit a text message into an animation.
+            # Delete the previous bot screen when possible.
+            if message.from_user and message.from_user.is_bot:
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+            await message.answer_animation(
+                animation=FSInputFile(intro), caption=text, reply_markup=markup
+            )
+    except Exception as exc:
+        print(f"Maga menu animation fallback: {type(exc).__name__}: {exc}", flush=True)
+        await display(message, text, markup)
 
 
 def meme_key(path):
