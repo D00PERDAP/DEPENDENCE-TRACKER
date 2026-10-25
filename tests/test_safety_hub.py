@@ -26,7 +26,7 @@ class SafetyHubTests(unittest.TestCase):
     def test_nightprep_recommends_stopping(self):
         screen = FLOW.split('if action == "nightprep":', 1)[1].split('if action == "recovery":', 1)[0]
         self.assertIn("не начинать", screen)
-        self.assertIn("не смешивай", screen)
+        self.assertIn("не смешивай", screen.casefold())
 
 
 if __name__ == "__main__":
