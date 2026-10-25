@@ -686,9 +686,10 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                  ("⬅️ Настройки", "ui:mine")],
             ]
             if not session:
-                rows.insert(0, [("▶️ Погнали, вацок сопровождение", "v2:start")])
-            return await panel(q, "⏰ НАПОМИНАНИЯ, БРАТ\n\n" + status +
-                               "\n\nРассылка действует до её отключения или завершения сессии.",
+                rows.insert(0, [("💀 Включить сопровождение", "v2:start")])
+            return await panel(q, "🦅 МАГА | НАПОМИНАЛКИ\n\n" + status +
+                               "\n\nНужна тишина — выключи рассылку кнопкой.\n"
+                               "Вернуться можно в любой момент, вацок.",
                                rows)
 
         if action == "quiet":
