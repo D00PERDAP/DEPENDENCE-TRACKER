@@ -331,12 +331,15 @@ def sync_licensed(limit=8):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["scan", "list", "approve", "reject", "clean-old", "preview", "sync-licensed"])
+    parser.add_argument("action", choices=["scan", "list", "approve", "reject", "clean-old", "preview", "sync-licensed", "harvest"])
     parser.add_argument("id", nargs="?", type=int)
     parser.add_argument("image", nargs="?")
     parser.add_argument("--category", choices=sorted(CATEGORIES))
     args = parser.parse_args()
-    if args.action == "sync-licensed":
+    if args.action == "harvest":
+        from meme_harvester import run
+        run()
+    elif args.action == "sync-licensed":
         sync_licensed()
     elif args.action == "scan":
         scan()
