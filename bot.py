@@ -190,13 +190,33 @@ async def admin_password(m: Message, state: FSMContext):
 
 async def admin_verify(m, state, password):
     secret = os.getenv("ADMIN_PASSWORD", "")
-    ok = bool(secret) and hmac.compare_digest(password, secret)
+    # Limit repeated guesses per Telegram account (15-minute lockout).
+    now_ts = int(utcnow().timestamp())
+    with connect() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS admin_login_attempts (
+            user_id INTEGER PRIMARY KEY, failures INTEGER NOT NULL,
+            locked_until INTEGER NOT NULL DEFAULT 0)""")
+        row = c.execute("SELECT failures,locked_until FROM admin_login_attempts WHERE user_id=?",
+                        (m.from_user.id,)).fetchone()
+    locked = bool(row and row["locked_until"] > now_ts)
+    ok = not locked and bool(secret) and hmac.compare_digest(password, secret)
     try:
         await m.delete()
     except Exception:
         pass
     if not ok:
+        if locked:
+            return await m.answer("🔒 Слишком много попыток. Повтори через 15 минут.")
+        failures = (row["failures"] if row and row["locked_until"] <= now_ts else 0) + 1
+        until = now_ts + 900 if failures >= 5 else 0
+        with connect() as c:
+            c.execute("""INSERT INTO admin_login_attempts VALUES(?,?,?)
+                         ON CONFLICT(user_id) DO UPDATE SET
+                         failures=excluded.failures,locked_until=excluded.locked_until""",
+                      (m.from_user.id, failures, until))
         return await m.answer("❌ Неверный пароль или ADMIN_PASSWORD не задан.")
+    with connect() as c:
+        c.execute("DELETE FROM admin_login_attempts WHERE user_id=?", (m.from_user.id,))
     with connect() as c:
         c.execute("""INSERT INTO bot_admins VALUES(?,?,?)
                      ON CONFLICT(user_id) DO UPDATE SET last_login=excluded.last_login""",
