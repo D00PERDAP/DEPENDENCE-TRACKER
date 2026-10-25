@@ -243,14 +243,103 @@ def preview(number):
         print("Preview unavailable:", type(exc).__name__, str(exc)[:160])
 
 
+
+def sync_licensed(limit=8):
+    """Import openly licensed, relevant Wikimedia Commons images only.
+
+    Conservative by design: a filename match and verified free license are
+    required; ambiguous material is not imported.
+    """
+    from urllib.parse import urlencode
+    import time
+    import tempfile
+    from PIL import Image, UnidentifiedImageError
+    query = "наркоман meme"
+    api = "https://commons.wikimedia.org/w/api.php?" + urlencode({
+        "action": "query", "generator": "search", "gsrsearch": query,
+        "gsrnamespace": 6, "gsrlimit": 50, "prop": "imageinfo",
+        "iiprop": "url|extmetadata|size", "format": "json"
+    })
+    req = urllib.request.Request(api, headers=HEADERS)
+    try:
+        with urllib.request.urlopen(req, timeout=25) as response:
+            pages = json.load(response).get("query", {}).get("pages", {})
+    except (OSError, ValueError) as exc:
+        print("Licensed source unavailable:", type(exc).__name__)
+        return
+    allowed = {"cc0", "public domain", "cc-by-4.0", "cc-by-sa-4.0",
+               "cc-by-3.0", "cc-by-sa-3.0"}
+    imported = 0
+    rejected = 0
+    manifest = ROOT / "data" / "licensed_memes.json"
+    records = json.loads(manifest.read_text(encoding="utf-8")) if manifest.exists() else []
+    seen = {x.get("source") for x in records}
+    for page in pages.values():
+        title = page.get("title", "")
+        if not KEYWORDS.search(title):
+            rejected += 1
+            continue
+        infos = page.get("imageinfo") or []
+        if not infos:
+            continue
+        info = infos[0]
+        metadata = info.get("extmetadata") or {}
+        license_name = re.sub(r"<[^>]+>", "", metadata.get("LicenseShortName", {}).get("value", "")).strip().lower()
+        license_url = metadata.get("LicenseUrl", {}).get("value", "")
+        source = info.get("descriptionurl", "")
+        url = info.get("url", "")
+        if not any(x == license_name for x in allowed) or not source.startswith("https://commons.wikimedia.org/") or source in seen:
+            rejected += 1
+            continue
+        if not url.startswith("https://upload.wikimedia.org/") or info.get("size", 0) > 8_000_000:
+            rejected += 1
+            continue
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=HEADERS), timeout=20) as response:
+                data = response.read(8_000_001)
+            if len(data) > 8_000_000:
+                continue
+            from io import BytesIO
+            with Image.open(BytesIO(data)) as im:
+                im.verify()
+            with Image.open(BytesIO(data)) as im:
+                if im.width < 250 or im.height < 150 or im.width * im.height > 18_000_000:
+                    continue
+                im = im.convert("RGB")
+                digest = hashlib.sha256(im.tobytes()).hexdigest()
+                target = MEDIA / "general" / (digest + ".jpg")
+                if target.exists():
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                im.save(target, "JPEG", quality=88, optimize=True)
+            records.append({"source": source, "file": str(target.relative_to(ROOT)),
+                            "title": title, "license": license_name,
+                            "license_url": license_url,
+                            "author": re.sub(r"<[^>]+>", "", metadata.get("Artist", {}).get("value", ""))[:250]})
+            seen.add(source)
+            imported += 1
+            if imported >= limit:
+                break
+        except (OSError, ValueError, UnidentifiedImageError):
+            continue
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(json.dumps(records, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"Imported licensed images: {imported}; rejected candidates: {rejected}.")
+    if not imported:
+        print("No verified relevant licensed images. Existing collection unchanged.")
+
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["scan", "list", "approve", "reject", "clean-old", "preview"])
+    parser.add_argument("action", choices=["scan", "list", "approve", "reject", "clean-old", "preview", "sync-licensed"])
     parser.add_argument("id", nargs="?", type=int)
     parser.add_argument("image", nargs="?")
     parser.add_argument("--category", choices=sorted(CATEGORIES))
     args = parser.parse_args()
-    if args.action == "scan":
+    if args.action == "sync-licensed":
+        sync_licensed()
+    elif args.action == "scan":
         scan()
     elif args.action == "list":
         items = load()
