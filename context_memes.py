@@ -95,32 +95,49 @@ SUBSTANCE_EXTRAS = {
 
 
 def candidates(substance, risk, assets=ASSETS):
-    """Only real picture meme files. Exact topic first, then broader safe subjects."""
+    """Pool topic-matching PICTURE memes so 10-minute reminders don't repeat.
+
+    First include exact substance/risk images and general images about the *same*
+    problem. Add broad substance jokes only when the pool would be tiny.
+    """
     sub = SUB_KEYS.get(substance, "general")
     risk = risk if risk in RISK_KEYS else "general"
-    paths = [
-        Path(assets) / "contextual" / sub / risk,
-        Path(assets) / "contextual" / sub / "general",
-        Path(assets) / "contextual" / "general" / risk,
-        Path(assets) / "contextual" / "general" / "general",
+    media = Path(assets)
+    relevant = [
+        media / "contextual" / sub / risk,
+        media / "contextual" / "general" / risk,
     ]
+    broader = [
+        media / "contextual" / sub / "general",
+    ]
+    generic = [media / "contextual" / "general" / "general"]
     if risk in LEGACY_CATEGORIES:
-        paths.append(Path(assets) / LEGACY_CATEGORIES[risk])
+        broader.append(media / LEGACY_CATEGORIES[risk])
     if risk in ("general", "check", "ok"):
-        paths.append(Path(assets) / "general")
-    for directory in paths:
-        if not directory.is_dir():
-            continue
-        files = [p for p in directory.iterdir()
-                 if p.is_file() and p.suffix.lower() in IMAGES
-                 and not p.name.startswith("original_") and p.stat().st_size > 0]
-        if files:
-            # Admin-approved images first, then permissively licensed photo memes.
-            # The no-network illustrated scene generator is the final fallback.
-            files.sort(key=lambda p: (0 if not p.name.startswith(("photo_", "illustrated_")) else
-                                      1 if p.name.startswith("photo_") else 2, p.name))
-            return files
-    return []
+        generic.append(media / "general")
+
+    def add_dirs(paths, seen, collected):
+        for directory in paths:
+            if not directory.is_dir():
+                continue
+            for path in directory.iterdir():
+                if (path.is_file() and path.suffix.lower() in IMAGES
+                        and not path.name.startswith("original_")
+                        and path.stat().st_size > 0 and path not in seen):
+                    collected.append(path)
+                    seen.add(path)
+
+    collected, seen = [], set()
+    add_dirs(relevant, seen, collected)
+    if len(collected) < 6:
+        add_dirs(broader, seen, collected)
+    if not collected:
+        add_dirs(generic, seen, collected)
+    # Owner-approved old-school photos first, licensed photos next, original
+    # illustrated photo alternatives third. Never the old quote-only cards.
+    collected.sort(key=lambda p: (0 if not p.name.startswith(("photo_", "illustrated_")) else
+                                  1 if p.name.startswith("photo_") else 2, p.as_posix()))
+    return collected
 
 
 def joke(substance, risk):
