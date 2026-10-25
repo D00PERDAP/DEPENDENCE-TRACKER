@@ -108,7 +108,7 @@ def reminder_keyboard(kb):
     return kb([
         [("👌 Всё нормально", "v2:feel:ok"), ("🔥 Меня несёт", "v2:impulses")],
         [("🆘 Мне плохо", "v2:safety"), ("⏸ Тихий режим", "v2:quiet")],
-        [("🎭 Мем по ситуации", "v2:meme")],
+        [("😂 Прикол по ситуации", "v2:meme")],
     ])
 
 
@@ -128,7 +128,7 @@ async def followup_loop(bot, connect, kb):
                 try:
                     markup = ([
                         [("✅ Обошлось", "v2:post:good"), ("😕 Было тяжело", "v2:post:hard")],
-                        [("📊 Отчёт", "v2:stats"), ("🆘 Мне плохо", "v2:safety")],
+                        [("📊 Расклад", "v2:stats"), ("🆘 Мне плохо", "v2:safety")],
                     ] if item["kind"] == "after" else [
                         [("✅ Стало лучше", "v2:better"), ("😣 Всё ещё тяжело", "v2:impulses")],
                         [("🆘 Нужна помощь", "v2:safety")],
@@ -184,8 +184,8 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 BufferedInputFile(image, filename="my-statistics.jpg"),
                 caption=stats_dashboard.summary_caption(data),
                 reply_markup=kb([
-                    [("🔄 Обновить", "v2:stats"), ("☑️ Мои запреты", "check")],
-                    [("🏠 Меню", "v2:home"), ("🗑 Мои данные", "delete_ask")],
+                    [("🔄 Освежить", "v2:stats"), ("☑️ Моё слово", "check")],
+                    [("🏠 На базу", "v2:home"), ("🗑 Удалить записи", "delete_ask")],
                 ]),
             )
         except (OSError, ValueError, RuntimeError) as exc:
@@ -263,14 +263,14 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     f"Напоминания: {'не включены' if not session else '⏸ тишина' if settings['quiet'] else str(settings['base_interval']) + ' минут'}\n\n"
                     "Что нужно прямо сейчас?")
             rows = [
-                [("😂 Мем", "v2:meme"), ("🔥 Стоп", "v2:impulses")],
-                [("🫀 Состояние", "v2:checkin"), ("🆘 Помощь", "v2:safety")],
-                [("⚙️ Моё", "ui:mine")],
+                [("😂 Мемчик", "v2:meme"), ("🔥 Держи себя, брат", "v2:impulses")],
+                [("🫀 Как ты, вацок?", "v2:checkin"), ("🆘 Помощь", "v2:safety")],
+                [("⚙️ Моё, брат", "ui:mine")],
             ]
-            rows.insert(0, [("⏹ Завершить", "v2:finish")] if session
-                        else [("▶️ Начать", "v2:start")])
+            rows.insert(0, [("⏹ Закончить, брат", "v2:finish")] if session
+                        else [("▶️ Погнали, вацок", "v2:start")])
             if is_admin(uid):
-                rows.append([("🛠 Админка", "admin:panel")])
+                rows.append([("🛠 Штаб Маги", "admin:panel")])
             await panel(q, text, rows)
             return
 
@@ -283,10 +283,10 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             if session:
                 return await panel(q, "🔴 У тебя уже включено сопровождение. "
                                    "Можно изменить частоту или завершить.", [
-                    [("🔔 Частота", "v2:settings"), ("☑️ Запреты", "check")],
-                    [("⏹ Завершить", "v2:finish"), ("🏠 Меню", "v2:home")]])
+                    [("⏰ Частота, брат", "v2:settings"), ("☑️ Моё слово", "check")],
+                    [("⏹ Закончить, брат", "v2:finish"), ("🏠 На базу", "v2:home")]])
             rows = [[(name, f"v2:sub:{i}")] for i, name in enumerate(safety.SUBSTANCES)]
-            rows += [[("☑️ Сначала выбрать запреты", "check")], [("🏠 Меню", "v2:home")]]
+            rows += [[("☑️ Сначала выбрать запреты", "check")], [("🏠 На базу", "v2:home")]]
             return await panel(q, "▶️ НАЧАЛО\n\nОтметь вещество или «Другое / не знаю». "
                                "Можно выбрать без объяснений. Затем назначим частоту напоминаний.", rows)
 
@@ -296,14 +296,14 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 if int(param) < 0:
                     raise IndexError
             except (ValueError, IndexError):
-                return await panel(q, "Неизвестный пункт.", [[("⬅️ Обратно, брат", "v2:start")]])
+                return await panel(q, "Э, брат, такой кнопки нет.", [[("⬅️ Обратно, брат", "v2:start")]])
             with connect() as c:
                 db.set_setting(c, uid, last_substance=substance)
             return await panel(q, f"✅ {substance}\n\n"
                                "Как часто присылать напоминания? Начнём сразу после выбора.", [
                 [("⚡ Каждые 10 мин", "v2:freq:10"), ("🔔 15 мин", "v2:freq:15")],
                 [("🕒 30 мин", "v2:freq:30"), ("🌙 60 мин", "v2:freq:60")],
-                [("☑️ Мои запреты", "check"), ("⬅️ Обратно, брат", "v2:start")]])
+                [("☑️ Моё слово", "check"), ("⬅️ Обратно, брат", "v2:start")]])
 
         if action in ("freq", "setfreq"):
             try:
@@ -311,12 +311,12 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 if minutes not in (10, 15, 30, 60):
                     raise ValueError
             except ValueError:
-                return await panel(q, "Неверная частота.", [[("⬅️ Обратно, брат", "v2:settings")]])
+                return await panel(q, "Э, вацок, выбери частоту кнопкой.", [[("⬅️ Обратно, брат", "v2:settings")]])
             with connect() as c:
                 settings, session = setup_state(c, uid)
                 if action == "setfreq" and not session:
                     return await panel(q, "Сначала включи сопровождение.", [
-                        [("▶️ Начать", "v2:start"), ("🏠 Меню", "v2:home"),
+                        [("▶️ Погнали, вацок", "v2:start"), ("🏠 На базу", "v2:home"),
                     ]])
                 created = session is None
                 if created:
@@ -339,7 +339,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 f"Запретов выбрано: {len(selected)}\n\n"
                 "Не стоит откладывать помощь, если тебе физически плохо.", [
                     [("🔥 Меня несёт", "v2:impulses"), ("🆘 Мне плохо", "v2:safety")],
-                    [("☑️ Изменить запреты", "check"), ("🏠 Меню", "v2:home")],
+                    [("☑️ Изменить запреты", "check"), ("🏠 На базу", "v2:home")],
                 ])
             if created:
                 await real_memes.send(q.message, uid, selected_sub,
@@ -353,7 +353,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 if not session:
                     return await panel(q,
                         "Нет активной сессии. Выбери вещество, затем включи 10 минут.",
-                        [[("▶️ Начать", "v2:start"), ("🏠 Меню", "v2:home")]])
+                        [[("▶️ Погнали, вацок", "v2:start"), ("🏠 На базу", "v2:home")]])
                 db.set_setting(c, uid, base_interval=10, quiet=0, boost_until=None)
                 db.schedule_alert(c, uid, session["id"], 10, now())
                 substance = session["substance"]
@@ -364,7 +364,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                          "При необходимости выключи рассылку в настройках.", [
                 [("📸 Ещё тестовый мем", "v2:photo_test"),
                  ("⚙️ Настройки, вацок", "v2:settings")],
-                [("🏠 Меню", "v2:home")],
+                [("🏠 На базу", "v2:home")],
             ])
             return await real_memes.send(q.message, uid, substance,
                                             risk_from_titles(titles), connect,
@@ -383,12 +383,12 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             return await panel(q, "🔥 ОСТАНОВИ МЕНЯ\n\nЧто сейчас больше всего тянет сделать?\n"
                                "Нажми один вариант — без длинных анкет.", [
                 *[[(label, f"v2:hold:{tag}")] for tag, label in safety.IMPULSES],
-                [("🆘 Физически плохо", "v2:safety"), ("🏠 Меню", "v2:home")],
+                [("🆘 Физически плохо", "v2:safety"), ("🏠 На базу", "v2:home")],
             ])
 
         if action == "hold":
             if param not in safety.IMPULSE_ADVICE:
-                return await panel(q, "Неизвестная проблема.", [[("🏠 Меню", "v2:home")]])
+                return await panel(q, "Э, брат, выбери вариант из списка.", [[("🏠 На базу", "v2:home")]])
             with connect() as c:
                 settings, session = setup_state(c, uid)
                 substance = session["substance"] if session else settings["last_substance"]
@@ -396,7 +396,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             await panel(q, safety.impulse_message(param, substance), [
                 [("⏳ Проверить через 10 мин", "v2:wait:urge"), ("✅ Передумал", "v2:better")],
                 [("🔔 Чаще напоминать", "v2:boost"), ("🆘 Мне плохо", "v2:safety")],
-                [("🏠 Меню", "v2:home")],
+                [("🏠 На базу", "v2:home")],
             ])
             if param != "paranoia":
                 await real_memes.send(q.message, uid, substance, param, connect,
@@ -420,8 +420,8 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     db.record_event(c, uid, session["id"] if session else None, "state", "ok")
                 return await panel(q, "👌 Отметил: всё нормально.\n\n"
                                    "Не нужно ничего доказывать себе или другим сегодня.", [
-                    [("🎭 Мем", "v2:meme"), ("🔥 Меня несёт", "v2:impulses")],
-                    [("🆘 Мне плохо", "v2:safety"), ("🏠 Меню", "v2:home")],
+                    [("😂 Прикол", "v2:meme"), ("🔥 Меня несёт", "v2:impulses")],
+                    [("🆘 Мне плохо", "v2:safety"), ("🏠 На базу", "v2:home")],
                 ])
             return await panel(q, "Отметь состояние:", [
                 [("🔥 Меня несёт", "v2:impulses"), ("🆘 Мне плохо", "v2:safety")],
@@ -436,20 +436,20 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                                + ("Ты отметил, что последний импульс удалось переждать." if was_risk else
                                   "Отметка сохранена.") +
                                "\nЕсли снова станет плохо — помощь доступна из меню.", [
-                [("🔥 Ещё нужна поддержка", "v2:impulses"), ("🏠 Меню", "v2:home")],
+                [("🔥 Ещё нужна поддержка", "v2:impulses"), ("🏠 На базу", "v2:home")],
             ])
 
         if action == "boost":
             with connect() as c:
                 settings, session = setup_state(c, uid)
                 if not session:
-                    return await panel(q, "Сначала начни сопровождение.", [[("▶️ Начать", "v2:start")]])
+                    return await panel(q, "Сначала включи сопровождение, вацок.", [[("▶️ Погнали, вацок", "v2:start")]])
                 until = stamp(now() + timedelta(hours=1))
                 db.set_setting(c, uid, boost_until=until, quiet=0)
                 db.schedule_alert(c, uid, session["id"], 10, now())
             return await panel(q, "⚡ На ближайший час включены напоминания примерно каждые 10 минут.\n"
                                "Выключить их можно в «Настройках».",
-                               [[("⚙️ Настроить", "v2:settings"), ("🏠 Меню", "v2:home")]])
+                               [[("⚙️ Настроить", "v2:settings"), ("🏠 На базу", "v2:home")]])
 
         if action == "wait":
             kind = param if param in ("urge", "wellbeing", "after") else "urge"
@@ -461,7 +461,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                  "⏳ Напишу через 10 минут, чтобы проверить состояние.\n"
                  "Если становится физически хуже — не жди уведомления, обращайся за помощью."), [
                     [("✅ Передумал", "v2:better"), ("🆘 Мне плохо", "v2:safety")],
-                    [("🏠 Меню", "v2:home")],
+                    [("🏠 На базу", "v2:home")],
                 ])
 
         if action == "checkin":
@@ -470,7 +470,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 [("👌 В порядке", "v2:feel:ok"), ("😰 Паника", "v2:feel:panic")],
                 [("🔥 Тянет творить трэш", "v2:impulses"), ("😵 Не сплю", "v2:hold:sleep")],
                 [("🤢 Физически плохо", "v2:safety"), ("🚨 Срочно", "v2:emergency")],
-                [("🏠 Меню", "v2:home")],
+                [("🏠 На базу", "v2:home")],
             ])
 
         if action == "safety":
@@ -487,7 +487,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 [("🚨 Немедленная помощь", "v2:emergency")],
                 [("🫀 Выбрать симптом", "v2:questions")],
                 [("💊 Другое вещество", "v2:meds")],
-                [("🏠 Меню", "v2:home")],
+                [("🏠 На базу", "v2:home")],
             ])
 
         if action in ("faq", "meds"):
@@ -518,7 +518,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             return await panel(q, f"{response.title}\n\n{response.text}", [
                 [("🕒 Проверить через 10 мин", "v2:wait:wellbeing")],
                 [("🚨 Стало опасно", "v2:emergency")],
-                [("⬅️ Другие симптомы", "v2:questions"), ("🏠 Меню", "v2:home")],
+                [("⬅️ Другие симптомы", "v2:questions"), ("🏠 На базу", "v2:home")],
             ])
 
         if action == "questions":
@@ -526,7 +526,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
 
         if action == "emergency":
             return await panel(q, safety.EMERGENCY_TEXT, [
-                [("🆘 Другие симптомы", "v2:questions")], [("🏠 Меню", "v2:home")],
+                [("🆘 Другие симптомы", "v2:questions")], [("🏠 На базу", "v2:home")],
             ])
 
         if action == "memethemes":
@@ -540,12 +540,12 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 [("🚕 Куда-то ехать", "v2:memerisk:travel"),
                  ("👀 Тревога", "v2:memerisk:paranoia")],
                 [("🎲 Случайный мем", "v2:meme"),
-                 ("🏠 Меню", "v2:home")],
+                 ("🏠 На базу", "v2:home")],
             ])
 
         if action == "memerisk":
             if param not in real_memes.LINES:
-                return await panel(q, "Тема не найдена.", [[("🏠 Меню", "v2:home")]])
+                return await panel(q, "Тема не найдена.", [[("🏠 На базу", "v2:home")]])
             with connect() as c:
                 settings, session = setup_state(c, uid)
                 substance = session["substance"] if session else settings["last_substance"]
@@ -597,10 +597,10 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 [("🔔 Включить" if settings["quiet"] else "⏸ Выключить",
                   "v2:quiet")],
                 [("⚡ Усилить на час", "v2:boost"),
-                 ("🏠 Меню", "v2:home")],
+                 ("🏠 На базу", "v2:home")],
             ]
             if not session:
-                rows.insert(0, [("▶️ Начать сопровождение", "v2:start")])
+                rows.insert(0, [("▶️ Погнали, вацок сопровождение", "v2:start")])
             return await panel(q, "⏰ НАПОМИНАНИЯ, БРАТ\n\n" + status +
                                "\n\nРассылка действует до её отключения или завершения сессии.",
                                rows)
@@ -615,7 +615,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     db.schedule_alert(c, uid, session["id"], minutes, now())
             return await panel(q, "⏸ Напоминания выключены." if new_value else
                                "⏰ Напомни, брат снова включены.", [
-                [("⚙️ Настройки, вацок", "v2:settings"), ("🏠 Меню", "v2:home")],
+                [("⚙️ Настройки, вацок", "v2:settings"), ("🏠 На базу", "v2:home")],
             ])
 
         if action == "finish":
@@ -631,7 +631,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                                "Как всё прошло? Можно просто выбрать вариант.", [
                 [("✅ Обошлось", "v2:post:good"), ("😕 Было тяжело", "v2:post:hard")],
                 [("☀️ Спроси через 8 часов", "v2:wait:after")],
-                [("📊 Отчёт", "v2:stats"), ("🏠 Меню", "v2:home")],
+                [("📊 Расклад", "v2:stats"), ("🏠 На базу", "v2:home")],
             ])
 
         if action == "post":
@@ -641,7 +641,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             return await panel(q, "Отметка сохранена. Спасибо, что проверил своё состояние.\n"
                                "Сделай паузу и не принимай важных решений на автомате.", [
                 [("📊 Моя статистика", "v2:stats"), ("🆘 Мне плохо", "v2:safety")],
-                [("🏠 Меню", "v2:home")],
+                [("🏠 На базу", "v2:home")],
             ])
 
-        return await panel(q, "Этот пункт недоступен.", [[("🏠 Меню", "v2:home")]])
+        return await panel(q, "Этот пункт недоступен.", [[("🏠 На базу", "v2:home")]])
