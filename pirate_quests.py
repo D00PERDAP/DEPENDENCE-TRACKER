@@ -116,8 +116,8 @@ async def harbor(m, uid):
         hidden = {r[0] for r in ac.execute("SELECT treasure_id FROM hidden_treasures")}
     rows = [r for r in rows if r["id"] not in hidden]
     opts=[[(f"🗺️ {r['title'][:40]}",f"pq:view:{r['id']}")] for r in rows]
-    opts += [[("➕ Создать сокровище","pq:new")],[("🚪 Закрыть гавань","pq:exit")]]
-    content = "🏴‍☠️ ТАЙНАЯ ГАВАНЬ\n\nВыбери своё сокровище:"
+    opts += [[("➕ Поставить свою точку","pq:new")],[("🚪 Закрыть гавань, брат","pq:exit")]]
+    content = "🏴‍☠️ ТАЙНАЯ ГАВАНЬ, ВАЦОК\n\nТихо, брат, тут только твои личные тайники. Выбирай:"
     await clear_except_screen(m.bot, uid)
     screen = GAME_SCREEN.get(uid)
     if screen:
@@ -136,19 +136,19 @@ def install(dp):
         if is_banned(m.from_user.id):
             try: await m.delete()
             except Exception: pass
-            return await m.answer("🚫 Доступ к гавани закрыт.")
+            return await m.answer("🚫 В гавань вход закрыт, вацок.")
         await state.clear()
         await clear_game(m.bot, m.from_user.id)
         await delete_input(m)
         await state.set_state(QuestForm.password)
-        await show_prompt(m, m.from_user.id, "🏴‍☠️ Тайная гавань\n\nВведи своё кодовое слово. При первом входе оно будет создано.")
+        await show_prompt(m, m.from_user.id, "🏴‍☠️ Тайная гавань, брат\n\nСкажи кодовое слово, брат. Первый раз — придумаешь своё.")
 
     @dp.message(QuestForm.password)
     async def password(m:Message,state:FSMContext):
         word=(m.text or "").strip()
         await delete_input(m)
         if not 6<=len(word)<=100:
-            return await show_prompt(m, m.from_user.id, "Кодовое слово должно содержать от 6 до 100 символов.")
+            return await show_prompt(m, m.from_user.id, "Э, вацок, кодовое слово должно быть от 6 до 100 символов.")
         uid=m.from_user.id
         with db() as c:
             exists=c.execute("SELECT 1 FROM players WHERE user_id=?",(uid,)).fetchone()
