@@ -641,24 +641,11 @@ async def send(message,uid,substance,risk,connect,*args,**kwargs):
         serial,source,payload=prepared[:3]
         joke_id=prepared[3] if len(prepared)>3 else None
         key=hashlib.sha256(f"{uid}:{serial}:{source}".encode()).hexdigest()[:16]
-        photo = BufferedInputFile(payload, filename=f"meme-{serial}.jpg")
-        if message.photo:
-            # Reuse the same photo message instead of flooding the chat.
-            await message.edit_media(
-                InputMediaPhoto(media=photo, caption="🎭 Старый добрый мем"),
-                reply_markup=_keyboard(key),
-            )
-        else:
-            await message.answer_photo(
-                photo, caption="🎭 Старый добрый мем",
-                reply_markup=_keyboard(key),
-            )
-            # Remove the obsolete bot menu after opening the photo viewer.
-            if message.from_user and message.from_user.is_bot:
-                try:
-                    await message.delete()
-                except Exception:
-                    pass
+        import ui_manager
+        await ui_manager.render_photo(
+            message, payload, "🎭 Старый добрый мем", _keyboard(key),
+            filename=f"meme-{serial}.jpg",
+        )
         _record(connect,uid,serial,source,payload,str(risk),joke_id=joke_id)
         return True
     except Exception as exc:
