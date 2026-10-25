@@ -27,6 +27,19 @@ class V2DataTests(unittest.TestCase):
         bot.init()
         self.at = datetime(2026, 10, 25, 10, 0, tzinfo=timezone.utc)
 
+    def test_default_checklist_expands_without_resetting_custom_choices(self):
+        with bot.connect() as c:
+            c.execute("INSERT INTO checklist(user_id,title,selected) VALUES(42,'Мой личный запрет',1)")
+            c.execute("INSERT INTO checklist(user_id,title,selected) VALUES(42,'Не садиться за руль',1)")
+            bot.ensure_preset(c, 42)
+            bot.ensure_preset(c, 42)
+            rows = c.execute("SELECT title,selected FROM checklist WHERE user_id=42").fetchall()
+            data = {row["title"]: row["selected"] for row in rows}
+            self.assertEqual(data["Мой личный запрет"], 1)
+            self.assertEqual(data["Не садиться за руль"], 1)
+            self.assertIn("Не покупать ещё", data)
+            self.assertEqual(len(rows), len(data))
+
     def test_additive_migration_preserves_existing_data(self):
         with bot.connect() as c:
             c.execute("INSERT INTO users(user_id,substance) VALUES(42,'Мефедрон')")
