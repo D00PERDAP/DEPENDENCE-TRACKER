@@ -11,7 +11,7 @@ import sqlite3
 from pathlib import Path
 
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import BufferedInputFile, FSInputFile, InputMediaPhoto
+from aiogram.types import BufferedInputFile, FSInputFile, InputMediaPhoto, InputRichMessage
 
 DB = Path(__file__).resolve().parent / "data" / "ui_screens.sqlite3"
 _locks = {}
@@ -116,6 +116,56 @@ async def render_photo(message, photo, caption, markup=None, filename="screen.jp
             chat_id, photo=media(), caption=caption[:1024], reply_markup=markup
         )
         _set(chat_id, sent.message_id, "photo")
+        if old and old[0] != sent.message_id:
+            await _remove(message.bot, chat_id, old[0])
+        return sent
+
+
+async def render_rich(message, markdown, fallback_text, markup=None):
+    """Bot API 10.3 rich home. Preserve edit-in-place; gracefully fall back on old clients.
+
+    Only text/rich screens are edited as text. Photo screens are replaced and
+    removed. A failed rich method is never allowed to leave two active screens.
+    """
+    chat_id = message.chat.id
+    rich = InputRichMessage(markdown=markdown)
+    async with _lock(chat_id):
+        old = _get(chat_id)
+        if old is None and getattr(message, "from_user", None) and message.from_user.is_bot:
+            old = (message.message_id, "photo" if (
+                message.photo or message.video or message.animation
+            ) else "text")
+        if old and old[1] == "text":
+            try:
+                edited = await message.bot.edit_message_text(
+                    chat_id=chat_id, message_id=old[0], rich_message=rich,
+                    reply_markup=markup,
+                )
+                _set(chat_id, old[0], "text")
+                return edited
+            except (TelegramBadRequest, AttributeError, TypeError) as exc:
+                if _same_message_error(exc):
+                    return None
+                # Rich messages unsupported: try to reuse the same text message.
+                try:
+                    edited = await message.bot.edit_message_text(
+                        chat_id=chat_id, message_id=old[0], text=fallback_text,
+                        reply_markup=markup,
+                    )
+                    _set(chat_id, old[0], "text")
+                    return edited
+                except TelegramBadRequest as fallback_exc:
+                    if _same_message_error(fallback_exc):
+                        return None
+        try:
+            sent = await message.bot.send_rich_message(
+                chat_id=chat_id, rich_message=rich, reply_markup=markup,
+            )
+        except (TelegramBadRequest, AttributeError, TypeError):
+            sent = await message.bot.send_message(
+                chat_id, fallback_text, reply_markup=markup,
+            )
+        _set(chat_id, sent.message_id, "text")
         if old and old[0] != sent.message_id:
             await _remove(message.bot, chat_id, old[0])
         return sent
