@@ -1,0 +1,467 @@
+"""Internet-backed old-school PHOTO meme creation.
+
+- Free Imgflip /get_memes works without an API key.
+- Optional approved local photo templates for genuinely Russian 2000s memes.
+- Optional paid OpenAI Image API backgrounds only with explicit owner opt-in,
+  bounded by an SQLite daily budget. Never sends personal user text to API.
+- ALL Russian text is overlaid by Pillow with a known Cyrillic font.
+- No auto-generated sea creature cartoons or fake text-only memes.
+
+Imgflip templates are user-submitted and have varying rights. Use the site's API
+and attribution where allowed; for commercial distribution curate/clear rights.
+"""
+from __future__ import annotations
+
+import asyncio
+import base64
+import hashlib
+import io
+import json
+import os
+import random
+import re
+import secrets
+import threading
+import time
+import urllib.parse
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+
+from PIL import Image, ImageDraw, ImageOps, ImageFont, ImageFilter, ImageEnhance
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+
+import meme_engine
+
+ROOT = Path(__file__).resolve().parent
+CACHE = ROOT / "data" / "meme_photo_cache"
+CURATED = ROOT / "assets" / "memes" / "approved_photos"
+SIZE = (850, 960)
+GUARD = threading.RLock()
+_LIST_TTL = 6 * 3600
+_LIST_CACHE = {"time": 0.0, "items": []}
+MAX_BYTES = 6_000_000
+
+# Filter the public API's rotating catalog to recognizable, candid, mainly
+# real-photo adult templates instead of cartoons, rage comics and text charts.
+PHOTO_NAMES = {
+    "drake hotline bling", "distracted boyfriend", "sad pablo escobar",
+    "change my mind", "woman yelling at cat", "hide the pain harold",
+    "grumpy cat", "ancient aliens", "roll safe think about it",
+    "first world problems", "overly attached girlfriend", "bad luck brian",
+    "y'all got any more of that", "third world skeptical kid",
+    "leonardo dicaprio cheers", "the most interesting man in the world",
+    "one does not simply", "laughing leo", "waiting skeleton",
+    "disappointed black guy", "scared cat", "confused nick young",
+    "surprised shaq", "awkward look monkey puppet", "confused math lady",
+    "side eyeing chloe", "sweating jordan peele", "is this a pigeon",
+    "pablo escobar waiting", "leonardo dicaprio laughing",
+    "shocked pikachu", "unsettled tom",  # less preferred, available for range
+}
+# Some public templates are photographs of minors. Exclude them by default.
+MINORS = {"bad luck brian", "third world skeptical kid", "side eyeing chloe"}
+
+# Russian punchlines, edited by a human and SHORT enough to read instantly.
+# No more random half-coherent word assembly or generated Russian in images.
+LINES = {
+    "more": [
+        ("Я: ВСЁ, НА СЕГОДНЯ ХВАТИТ", "МОЗГ ЧЕРЕЗ 5 МИНУТ: ПОШАЛИМ?"),
+        ("КОГДА ДАЛ СЕБЕ СЛОВО", "А МОЗГ УЖЕ НАПИСАЛ СЦЕНАРИЙ"),
+        ("НА НОЧЬ БЫЛ ТОЛЬКО ОДИН ПЛАН", "НЕ ПРИДУМЫВАТЬ ПЛАНОВ"),
+        ("Я: НАДО ОСТАНОВИТЬСЯ", "МОЗГ: НУ ОДНУ СЕРИЮ ЕЩЁ"),
+        ("КОГДА СКАЗАЛ «ПОСЛЕДНИЙ РАЗ»", "НЕ УТОЧНИЛ, В КАКОМ СЕЗОНЕ"),
+        ("МОЗГ ОПЯТЬ НАШЁЛ ПРИКЛЮЧЕНИЕ", "Я ВЫБИРАЮ ПОЛЕЖАТЬ"),
+        ("МОЙ ГЕНИАЛЬНЫЙ ПЛАН В 04:30", "ЗАВТРА НА НЕГО БУДЕТ СТЫДНО"),
+        ("КОГДА ПОДУМАЛ «ЕЩЁ НЕМНОГО»", "ПРОСТО ВЫЙДИ ИЗ ЧАТА"),
+        ("ДАВАЙ ЕЩЁ", "НЕТ, СПАСИБО, Я ЕЩЁ ПРОШЛЫЙ РАЗ ПОМНЮ"),
+    ],
+    "ex": [
+        ("КОГДА ЗАХОТЕЛОСЬ НАПИСАТЬ БЫВШЕЙ", "ТЕЛЕФОН: ПОЩАДИ МЕНЯ"),
+        ("Я В 04:12: ПРОСТО УЗНАЮ, КАК ОНА", "СУД ПРИГОВОРИЛ: ЛЕГКИ СПАТЬ"),
+        ("ДИАЛОГ С БЫВШЕЙ В ТРИ НОЧИ", "ЛУЧШЕ БЫ Я ПОГОДУ ПОСМОТРЕЛ"),
+        ("МОЗГ: НАПИШИ «ПРИВЕТ»", "ПАЛЕЦ: НАЖАЛ «УДАЛИТЬ ЧАТ»"),
+        ("КОГДА ОТКРЫЛ ЕЁ ПРОФИЛЬ", "И ВСПОМНИЛ, ЗАЧЕМ РАССТАЛИСЬ"),
+        ("Я: СЕГОДНЯ НИКОМУ НЕ ПИШУ", "ТЕЛЕФОН: СПАСИБО, ГОСПОДИ"),
+        ("КОГДА ХОЧЕШЬ ВЫЯСНИТЬ ОТНОШЕНИЯ", "В 05:00 МОЖНО ТОЛЬКО СПАТЬ"),
+        ("ПОСЛАНИЕ БЫВШЕЙ В НОЧИ", "ОСТАВИМ В ЧЕРНОВИКАХ, БРАТ"),
+    ],
+    "contacts": [
+        ("Я В 04:38: БРАТ, СЛУШАЙ", "БРАТ: Я ТЕБЕ НИЧЕГО НЕ ДОЛЖЕН"),
+        ("СЕДЬМОЕ ГОЛОСОВОЕ ЗА НОЧЬ", "ДРУЗЬЯ УШЛИ В РЕЖИМ ПОЛЁТА"),
+        ("ХОТЕЛ ВСЕМ ОБЪЯСНИТЬ СМЫСЛ ЖИЗНИ", "НЕ СМОГ ОБЪЯСНИТЬ ДАЖЕ СЕБЕ"),
+        ("КОГДА ТЯНЕТ ВСЕМ ПОЗВОНИТЬ", "ЗВОНИТЬ МОЖНО ПОДУШКЕ"),
+        ("МОЗГ: СЕЙЧАС ВСЕМ ПОЗВОНИМ", "ТЕЛЕФОН: Я УЖЕ РАЗРЯДИЛСЯ"),
+        ("Я: ЭТО ВАЖНЫЙ РАЗГОВОР", "ВРЕМЯ: 04:41. НЕТ, НЕ ВАЖНЫЙ"),
+    ],
+    "money": [
+        ("КОГДА ЗАГЛЯНУЛ В ПРИЛОЖЕНИЕ БАНКА", "А ТАМ ФИЛЬМ УЖАСОВ"),
+        ("Я: В ЭТОМ МЕСЯЦЕ ЭКОНОМЛЮ", "ТАКЖЕ Я: ПОШАЛИМ?"),
+        ("КОШЕЛЁК ПРОСИЛ ТИШИНЫ", "НОЧНОЙ Я ПРОСИЛ ПРИКЛЮЧЕНИЙ"),
+        ("КОГДА ХОЧЕШЬ ВСЁ КУПИТЬ", "ПОЛОЖИ КАРТУ И ОТОЙДИ"),
+        ("КРАБ-БУХГАЛТЕР СМОТРИТ НА ЧЕКИ", "И МЕДЛЕННО ЗАКРЫВАЕТ ГЛАЗА"),
+        ("У МЕНЯ БЫЛ ФИНАНСОВЫЙ ПЛАН", "ПЛАН ПЕРЕЕХАЛ К РОДИТЕЛЯМ"),
+    ],
+    "sleep": [
+        ("ЧЕТЫРЕ УТРА. ГЛАЗА ЗАКРЫЛ", "МОЗГ ОТКРЫЛ КОНФЕРЕНЦИЮ"),
+        ("КОГДА РЕШИЛ НАКОНЕЦ ПОСПАТЬ", "ВСПОМНИЛ СТЫД ИЗ ПЯТОГО КЛАССА"),
+        ("Я: СПАТЬ ХОЧУ", "МОЗГ: А ДАВАЙ ФИЛОСОФСКИЙ ВОПРОС"),
+        ("КТО НЕ СПИТ, ТОТ Я", "КОГДА УЖЕ МОЖНО НА ПЕНСИЮ?"),
+        ("В 04:50 Я ПОНЯЛ ВСЁ", "КРОМЕ ТОГО, КАК ЗАСНУТЬ"),
+        ("СОН: Я ТЕБЕ НУЖЕН?", "Я: ДА. МОЗГ: НЕТ"),
+    ],
+    "travel": [
+        ("Я В 04:00: СЕЙЧАС ПОЕДУ", "ЗДРАВЫЙ СМЫСЛ: НИКУДА НЕ ПОЕДЕШЬ"),
+        ("КОГДА ПОМЕРЕЩИЛОСЬ ПРИКЛЮЧЕНИЕ", "НАЧНИ С ПОЕЗДКИ В КРОВАТЬ"),
+        ("Я В ГОЛОВЕ: ФОРСАЖ", "В РЕАЛЬНОСТИ: ЛУЧШЕ ТАКСИ"),
+        ("СОБРАЛСЯ ИСКАТЬ СМЫСЛ ЖИЗНИ", "НАШЁЛ ПОДУШКУ. НОРМАЛЬНО"),
+        ("НАВИГАТОР: КУДА ЕДЕМ?", "Я: НИКУДА, ОТБОЙ"),
+    ],
+    "paranoia": [
+        ("КОГДА ДВА ЧАСА СМОТРЕЛ НА ШТОРУ", "А ЭТО ВСЁ ЕЩЁ ШТОРА"),
+        ("Я: КТО-ТО СЛЕДИТ ЗА МНОЙ", "КОТ: БРАТАН, ТЕБЕ НАДО ОТДОХНУТЬ"),
+        ("В МОЕЙ ГОЛОВЕ ДЕТЕКТИВ", "В КОМНАТЕ ОБЫЧНЫЙ ХОЛОДИЛЬНИК"),
+        ("КОГДА ВСЁ КАЖЕТСЯ ПОДОЗРИТЕЛЬНЫМ", "ОТЛОЖИ РЕШЕНИЯ И ПОПРОСИ ПОМОЩЬ"),
+    ],
+    "general": [
+        ("КОГДА СКАЗАЛ «Я НА ПЯТЬ МИНУТ»", "И НАЧАЛСЯ ТРЕТИЙ СЕЗОН"),
+        ("Я: ВСЁ ПОД КОНТРОЛЕМ", "КОНТРОЛЬ: МЕНЯ ТУТ ВООБЩЕ НЕТ"),
+        ("НОЧНОЙ Я: ЛЕГЕНДА", "УТРЕННИЙ Я: СВИДЕТЕЛЬ"),
+        ("КОГДА ХОТЕЛ СЕБЯ ВЕСТИ НОРМАЛЬНО", "НО У СЦЕНАРИСТА БЫЛИ ДРУГИЕ ПЛАНЫ"),
+        ("ПОШАЛИМ?", "НЕТ, БРАТ, ЗАВТРА РАБОТА"),
+        ("ОПЯТЬ НОЧНАЯ ИДЕЯ", "ПУСТЬ ДОЖИВЁТ ДО УТРА"),
+        ("ВЫШЕЛ НА ПЯТЬ МИНУТ", "ВЕРНУЛСЯ С НОВОЙ БИОГРАФИЕЙ"),
+        ("ПЛАН НА ВЕЧЕР БЫЛ НОРМАЛЬНЫЙ", "НО Я ЖЕ БЫЛ ГЛАВНЫМ ГЕРОЕМ"),
+    ],
+    "check": [
+        ("БОТ: НЕ НАТВОРИ ДЕЛОВ", "МОЗГ: НУ ХОТЯ БЫ ЧУТЬ-ЧУТЬ"),
+        ("Я: СЕГОДНЯ БЕЗ ПРИКЛЮЧЕНИЙ", "И ВОТ ЭТО УЖЕ ПОВОРОТ"),
+        ("ДЕНЬ ПРОШЁЛ СПОКОЙНО", "САМ НЕ ОЖИДАЛ"),
+        ("КОГДА МОЖНО ПРОСТО ПОСИДЕТЬ ДОМА", "И НЕ УСТРОИТЬ КВЕСТ"),
+    ],
+    "after": [
+        ("КОГДА ПРОСНУЛСЯ И ПОСМОТРЕЛ ЧАТЫ", "НАЧАЛСЯ СЕРИАЛ «А ЗАЧЕМ?»"),
+        ("УТРО ПОСЛЕ ПРИКЛЮЧЕНИЙ", "ЛУЧШЕ БЫ ЭТО БЫЛ СОН"),
+        ("Я ВЧЕРА: ГЕНИЙ", "Я СЕГОДНЯ: МОЖНО ВОДЫ"),
+    ],
+    "ok": [
+        ("НИКОМУ НЕ ПОЗВОНИЛ И НИЧЕГО НЕ КУПИЛ", "ЛЕГЕНДАРНЫЙ СЮЖЕТНЫЙ ПОВОРОТ"),
+        ("НЕ НАТВОРИЛ ДЕЛОВ", "МОЗГ НЕДОВОЛЕН. Я ДОВОЛЕН"),
+        ("СЕГОДНЯ ПРОСТО ЛЁГ СПАТЬ", "САМЫЙ НЕОЖИДАННЫЙ ФИНАЛ"),
+    ],
+}
+
+def init(connect):
+    """Additional SQLite tables without touching existing user data."""
+    with connect() as c:
+        c.executescript("""
+            CREATE TABLE IF NOT EXISTS real_meme_sent(
+                user_id INTEGER NOT NULL, serial INTEGER NOT NULL,
+                template_id TEXT NOT NULL, punchline TEXT NOT NULL,
+                created_at TEXT NOT NULL, PRIMARY KEY(user_id,serial)
+            );
+            CREATE INDEX IF NOT EXISTS real_meme_sent_idx
+              ON real_meme_sent(user_id, serial DESC);
+            CREATE TABLE IF NOT EXISTS real_meme_ai_budget(
+                day TEXT PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0
+            );
+        """)
+
+def _json_url(url, data=None, token=None, timeout=7):
+    payload=None if data is None else urllib.parse.urlencode(data).encode("utf-8")
+    headers={"User-Agent":"NoTroubleMemeBot/4.0 (+meme-photo-client)"}
+    if token:
+        headers["Authorization"]="Bearer "+token
+    request=urllib.request.Request(url,data=payload,headers=headers)
+    with urllib.request.urlopen(request,timeout=timeout) as response:
+        if response.status != 200:
+            raise RuntimeError(f"Image provider HTTP {response.status}")
+        contents=response.read(2_000_001)
+        if len(contents)>2_000_000:
+            raise ValueError("Meme API response too large")
+    return json.loads(contents)
+
+def _top_templates():
+    global _LIST_CACHE
+    now=time.monotonic()
+    with GUARD:
+        if _LIST_CACHE["items"] and now-_LIST_CACHE["time"]<_LIST_TTL:
+            return _LIST_CACHE["items"]
+    response=_json_url("https://api.imgflip.com/get_memes",timeout=8)
+    if not response.get("success"):
+        raise RuntimeError("Imgflip API returned error")
+    found=[]
+    for row in response.get("data",{}).get("memes",[]):
+        name=str(row.get("name","")).lower().strip()
+        ident=str(row.get("id",""))
+        link=str(row.get("url",""))
+        if (name not in PHOTO_NAMES or name in MINORS
+            or not ident.isdigit()
+            or not re.fullmatch(r"https://i\.imgflip\.com/[a-zA-Z0-9]+\.(?:jpg|jpeg|png|webp)",link)
+            or int(row.get("width") or 0)<280
+            or int(row.get("height") or 0)<250):
+            continue
+        found.append({"id":ident,"name":row["name"],"url":link})
+    if not found:
+        raise RuntimeError("No approved photomeme templates in Imgflip catalog")
+    with GUARD:
+        _LIST_CACHE={"time":time.monotonic(),"items":found}
+    return found
+
+def _curated_templates():
+    # File extension whitelist and no recursive import from user-supplied paths.
+    if not CURATED.is_dir():
+        return []
+    return [{"id":"owner-"+hashlib.sha1(p.name.encode()).hexdigest()[:12],
+             "name":"approved Russian retro template","path":p}
+            for p in CURATED.iterdir()
+            if p.is_file() and p.suffix.lower() in (".jpeg",".jpg",".png",".webp")
+            and p.stat().st_size>1200 and p.stat().st_size<=MAX_BYTES]
+
+def _source_bytes(template):
+    if "path" in template:
+        return template["path"].read_bytes()
+    ident=str(template["id"])
+    if not ident.isdigit():
+        raise ValueError("Invalid imgflip ID")
+    CACHE.mkdir(parents=True,exist_ok=True)
+    cached=CACHE/(ident+".jpg")
+    if cached.is_file() and 1000<cached.stat().st_size<=MAX_BYTES:
+        return cached.read_bytes()
+    link=template["url"]
+    if not re.fullmatch(r"https://i\.imgflip\.com/[a-zA-Z0-9]+\.(?:jpg|jpeg|png|webp)",link):
+        raise ValueError("Unexpected template host")
+    req=urllib.request.Request(link,headers={"User-Agent":"NoTroubleMemeBot/4.0"})
+    with urllib.request.urlopen(req,timeout=9) as response:
+        if response.status!=200 or not response.headers.get("Content-Type","").startswith("image/"):
+            raise ValueError("Invalid photo source")
+        payload=response.read(MAX_BYTES+1)
+    if len(payload)>MAX_BYTES or len(payload)<1000:
+        raise ValueError("Photo template size invalid")
+    with Image.open(io.BytesIO(payload)) as opened:
+        opened.verify()
+    try:
+        cached.write_bytes(payload)
+    except OSError:
+        pass # read-only disk: photo still renders from memory
+    return payload
+
+def _fonts():
+    return (
+        "/usr/share/fonts/truetype/msttcorefonts/Impact.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "DejaVuSans-Bold.ttf",
+    )
+
+def _font(size):
+    for name in _fonts():
+        try: return ImageFont.truetype(name,size)
+        except OSError: pass
+    raise RuntimeError("Cyrillic font unavailable; install fonts-dejavu-core")
+
+def _wrap(draw,text,ft,width):
+    lines=[]
+    words=text.split()
+    current=""
+    for word in words:
+        sample=(current+" "+word).strip()
+        if current and draw.textbbox((0,0),sample,font=ft)[2]>width:
+            lines.append(current);current=word
+        else:
+            current=sample
+    if current: lines.append(current)
+    return lines
+
+def _legend(draw,text,bottom=False):
+    text=text.upper().strip()
+    if not text:
+        return
+    for size in range(64,21,-2):
+        ft=_font(size)
+        lines=_wrap(draw,text,ft,SIZE[0]-54)
+        if len(lines)<=3:
+            break
+    step=size+14
+    y=(SIZE[1]-48-step*len(lines)) if bottom else 30
+    for line in lines:
+        draw.text((SIZE[0]//2+2,y+3),line,
+                  fill="#0C0A10",font=ft,anchor="mt",
+                  stroke_width=9,stroke_fill="#08080A")
+        draw.text((SIZE[0]//2,y),line,fill="white",
+                  font=ft,anchor="mt",stroke_width=5,
+                  stroke_fill="#08080A")
+        y+=step
+
+def compose(photo_bytes,top,bottom,serial,source_label="Imgflip"):
+    """Authentic image with verified Cyrillic captions, not AI-drawn letters."""
+    with Image.open(io.BytesIO(photo_bytes)) as picture:
+        picture.load()
+        if picture.width<240 or picture.height<240 or picture.width*picture.height>26_000_000:
+            raise ValueError("Template photo dimensions unsupported")
+        base=ImageOps.exif_transpose(picture).convert("RGB")
+    # Preserve the awkward framing of the original; no aggressive square cropping.
+    contained=ImageOps.contain(base,(SIZE[0],SIZE[1]-24),Image.Resampling.LANCZOS)
+    cover=ImageOps.fit(base,SIZE,Image.Resampling.LANCZOS)
+    cover=cover.filter(ImageFilter.GaussianBlur(15))
+    cover=ImageEnhance.Brightness(cover).enhance(.65)
+    x=(SIZE[0]-contained.width)//2
+    y=(SIZE[1]-contained.height)//2
+    cover.paste(contained,(x,y))
+    overlay=Image.new("RGBA",SIZE,(0,0,0,0))
+    layer=ImageDraw.Draw(overlay)
+    # Transparent shadows, not 90% black poster cards; original image stays visible.
+    for dy in range(165):
+        alpha=int((1-dy/165)**2*110)
+        layer.rectangle((0,dy,SIZE[0],dy+1),fill=(0,0,0,alpha))
+        layer.rectangle((0,SIZE[1]-1-dy,SIZE[0],SIZE[1]-dy),
+                        fill=(0,0,0,alpha))
+    cover=Image.alpha_composite(cover.convert("RGBA"),overlay).convert("RGB")
+    draw=ImageDraw.Draw(cover)
+    _legend(draw,top)
+    _legend(draw,bottom,bottom=True)
+    # Attribution without ruining the layout. The unique serial is *not*
+    # artificially printed on the picture; unique text-photo combinations do it.
+    credit=f"{source_label} · #{serial}"
+    draw.text((13,SIZE[1]-15),credit,font=_font(11),fill="#EEE7E0",
+              stroke_width=2,stroke_fill="#202027")
+    buf=io.BytesIO()
+    cover.save(buf,"JPEG",quality=79,optimize=True)
+    return buf.getvalue()
+
+def _lines(risk,serial):
+    choices=LINES.get(risk,LINES["general"])
+    # Rotate through ALL captions before repeating in stable catalog order.
+    pair=choices[(serial-1)%len(choices)]
+    return pair
+
+def _budget(connect):
+    """Off by default; charged API usage requires explicit owner's opt-in."""
+    if os.getenv("MEME_AI_ENABLED","0")!="1" or not os.getenv("OPENAI_API_KEY"):
+        return False
+    try:
+        cap=max(0,min(20,int(os.getenv("MEME_AI_DAILY_LIMIT","2"))))
+    except ValueError:
+        cap=0
+    if not cap:
+        return False
+    today=datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    with connect() as c:
+        c.execute("BEGIN IMMEDIATE")
+        row=c.execute("SELECT attempts FROM real_meme_ai_budget WHERE day=?",
+                      (today,)).fetchone()
+        used=int(row[0]) if row else 0
+        if used>=cap:
+            return False
+        c.execute("""INSERT INTO real_meme_ai_budget(day,attempts) VALUES(?,1)
+                  ON CONFLICT(day) DO UPDATE SET attempts=attempts+1""",(today,))
+    return True
+
+def _ai_image(risk,seed):
+    """Paid OpenAI image API; produce only an uncaptioned fictional *adult* photo."""
+    topics={
+        "ex":"person sitting with old mobile phone looking embarrassed",
+        "money":"person checking wallet in disbelief",
+        "more":"person about to make a silly late-night decision, instantly regretting it",
+        "sleep":"person exhausted in front of old CRT monitor at 4am",
+        "travel":"adult looking at car keys and deciding to stay home",
+        "contacts":"person hovering over an old mobile phone with doubtful expression",
+        "paranoia":"person staring suspiciously at completely ordinary curtains",
+        "general":"person awkwardly posing in an ordinary apartment",
+    }
+    prompt=(
+        "Make an ORIGINAL fictional photorealistic awkward Russian-internet "
+        "meme photo, like a poorly-composed 2005-2011 cheap compact-camera shot. "
+        "Funny accidental candid moment, no polished studio lighting, "
+        "flash glare, compression noise, ordinary cluttered home, small odd "
+        "visual detail, slightly absurd expression. All depicted humans "
+        "are clearly ADULTS 25+, no real person lookalikes. Situation: "
+        +topics.get(risk,"adult awkwardly posing in apartment")+
+        ". No drug consumption or paraphernalia, no text, no labels, "
+        "no watermarks, no logos. The text caption will be drawn later."
+    )
+    data=json.dumps({"model":os.getenv("MEME_IMAGE_MODEL","gpt-image-2.5-flare"),
+                     "prompt":prompt,"size":"1024x1024",
+                     "quality":"low","output_format":"jpeg"}).encode()
+    request=urllib.request.Request("https://api.openai.com/v1/images/generations",
+                  data=data,headers={"Content-Type":"application/json",
+                                     "Authorization":"Bearer "+os.environ["OPENAI_API_KEY"]},
+                  method="POST")
+    with urllib.request.urlopen(request,timeout=90) as result:
+        answer=json.loads(result.read(12_000_000))
+    return base64.b64decode(answer["data"][0]["b64_json"])
+
+def _prepare(connect,uid,substance,risk,allow_paid=False):
+    serial=meme_engine.next_serial(connect,uid)
+    risk=risk if risk in LINES else "general"
+    templates=_curated_templates()
+    # Search templates in the permitted free pool. Premium search can be added
+    # after owner reviews image rights/content; don't use arbitrary NSFW results.
+    try:
+        templates+=_top_templates()
+    except Exception as exc:
+        print(f"Imgflip catalog unavailable: {type(exc).__name__}: {exc}",flush=True)
+    random.Random(secrets.randbits(64)).shuffle(templates)
+    # Stable rotation: avoid reusing the same template on consecutive requests.
+    # With N stable templates, every N turns starts using alternate captions.
+    if templates:
+        start=(serial-1)%len(templates)
+        templates=templates[start:]+templates[:start]
+    top,bottom=_lines(risk,serial)
+    # Owner's paid optional photo generator has a hard daily request ceiling.
+    if allow_paid and _budget(connect):
+        try:
+            photo=_ai_image(risk,serial)
+            return serial,"ai",compose(photo,top,bottom,serial,"AI фото")
+        except Exception as exc:
+            print(f"Paid image provider failed: {type(exc).__name__}: {exc}",flush=True)
+    for tpl in templates[:30]:
+        try:
+            picture=_source_bytes(tpl)
+            return serial,tpl["id"],compose(picture,top,bottom,serial,
+                                              "Imgflip" if "url" in tpl else "Фото автора")
+        except Exception as exc:
+            print(f"Photo template unavailable {tpl['id']}: "
+                  f"{type(exc).__name__}: {exc}",flush=True)
+    raise RuntimeError("Нет доступных фотомемов: проверь интернет или положи "
+                       "свои разрешённые фото в assets/memes/approved_photos/")
+
+def _keyboard(key):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="😂 Зашло",callback_data=f"mv:1:{key}"),
+         InlineKeyboardButton(text="🥱 Не смешно",callback_data=f"mv:-1:{key}")],
+        [InlineKeyboardButton(text="🎲 Ещё мем",callback_data="mnext")],
+    ])
+
+def _record(connect,uid,serial,source,photo,text):
+    key=hashlib.sha256(f"{uid}:{serial}:{source}".encode()).hexdigest()[:16]
+    today=datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with connect() as c:
+        c.execute("""INSERT INTO meme_sends(user_id,meme_key,at)
+                     VALUES(?,?,?)""",(uid,key,today))
+        c.execute("""INSERT INTO real_meme_sent
+                     (user_id,serial,template_id,punchline,created_at)
+                     VALUES(?,?,?,?,?)""",(uid,serial,str(source),text,today))
+        c.execute("""DELETE FROM real_meme_sent WHERE user_id=? AND serial NOT IN
+                  (SELECT serial FROM real_meme_sent WHERE user_id=?
+                   ORDER BY serial DESC LIMIT 300)""",(uid,uid))
+    return key
+
+async def send(message,uid,substance,risk,connect,*args,**kwargs):
+    """Only send photo memes. Telegram exceptions bubble up for proper logging."""
+    serial,source,payload=await asyncio.to_thread(_prepare,connect,uid,substance,
+                                                   risk,True)
+    key=hashlib.sha256(f"{uid}:{serial}:{source}".encode()).hexdigest()[:16]
+    await message.answer_photo(BufferedInputFile(payload,filename=f"meme-{serial}.jpg"),
+                               caption="🎭 Старый добрый мем",
+                               reply_markup=_keyboard(key))
+    _record(connect,uid,serial,source,payload,str(risk))
+    return True
+
+async def send_bot(bot,uid,substance,risk,connect,caption,reply_markup):
+    # Never incur paid AI image charges for an automatic 10-minute reminder.
+    serial,source,payload=await asyncio.to_thread(_prepare,connect,uid,substance,
+                                                   risk,False)
+    await bot.send_photo(uid,BufferedInputFile(payload,filename=f"meme-{serial}.jpg"),
+                         caption=caption[:1024],reply_markup=reply_markup)
+    _record(connect,uid,serial,source,payload,str(risk))
+    return True
