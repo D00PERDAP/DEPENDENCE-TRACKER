@@ -122,9 +122,18 @@ def init():
 
 
 def kb(rows):
+    """Native Bot API 10.3 button styling. No extra keyboard menus."""
+    def button(label, data):
+        style = None
+        if data in {"v2:emergency", "delete_yes"}:
+            style = "danger"
+        elif data in {"v2:finish", "v2:start"}:
+            style = "primary"
+        elif data in {"v2:home", "home"}:
+            style = "success"
+        return InlineKeyboardButton(text=label, callback_data=data, style=style)
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=label, callback_data=data) for label, data in row]
-        for row in rows
+        [button(label, data) for label, data in row] for row in rows
     ])
 
 
@@ -521,18 +530,28 @@ async def home(message, uid):
         session = active(c, uid)
         ensure_preset(c, uid)
         count = len(picked(c, uid))
-    if session:
-        text = (
-            "🦅 МАГА НА СВЯЗИ, ВАЦОК!\n\n"
-            f"🔴 Сопровождение включено. Твоих правил: {count}.\n"
-            "Если стало плохо — жми помощь, тут без шуток."
+    running = bool(session)
+    markup = home_buttons(running, is_meme_admin_id(uid))
+    status = "🔴 Сопровождение активно" if running else "🟢 Сопровождение выключено"
+    text = (
+        "🦅 МАГА НА СВЯЗИ\\n\\n"
+        "Салам, брат. Всё по делу, без суеты.\\n\\n"
+        f"{status}\\n☑️ Личных правил: {count}\\n\\n"
+        "Если стало плохо — сразу открывай помощь."
+    )
+    # Rich Messages: native structured Telegram content, not a web app.
+    # Disabled with MAGA_RICH_UI=0 if a client fails to render correctly.
+    if os.getenv("MAGA_RICH_UI", "1").strip() == "1":
+        rich = (
+            "## 🦅 МАГА НА СВЯЗИ\\n\\n"
+            "*ЛИЧНОЕ ДЕЛО · ГЛАВНАЯ*\\n\\n"
+            "Салам, брат. Всё по делу, без суеты.\\n\\n"
+            f"**{status}**\\n\\n"
+            f"☑️ Личных правил: **{count}**\\n\\n"
+            "---\\n"
+            "Если стало плохо — сразу открывай помощь."
         )
-    else:
-        text = (
-            "🦅 Салам алейкум!\n\n"
-            "Мага на связи, брат!"
-        )
-    markup = home_buttons(bool(session), is_meme_admin_id(uid))
+        return await ui_manager.render_rich(message, rich, text, markup)
     intro = Path(__file__).resolve().parent / "assets" / "maga_menu_photo.jpg"
     if intro.is_file():
         return await ui_manager.render_photo(message, intro, text, markup)
