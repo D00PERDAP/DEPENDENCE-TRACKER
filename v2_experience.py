@@ -202,7 +202,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             return await message.answer("Фото слишком большое (максимум 8 МБ).")
         buffer = io.BytesIO()
         try:
-            await message.bot.download(photo, destination=buffer)
+            await message.bot.download(photo.file_id, destination=buffer)
             target = await asyncio.to_thread(
                 context_memes.import_admin_photo,
                 buffer.getvalue(), parts[1], parts[2], message.from_user.id,
