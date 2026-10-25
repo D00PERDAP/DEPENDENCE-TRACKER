@@ -219,11 +219,12 @@ async def meme_count(m: Message):
         row = c.execute("SELECT serial FROM meme_dynamic_counter WHERE user_id=?",
                         (m.from_user.id,)).fetchone()
         total = int(row[0]) if row else 0
-        recent = c.execute("SELECT COUNT(*) FROM meme_dynamic_history WHERE user_id=?",
+        recent = c.execute("SELECT COUNT(*) FROM real_meme_sent WHERE user_id=?",
                            (m.from_user.id,)).fetchone()[0]
-    await m.answer(f"🎭 Создано уникальных мемов: {total}.\n"
-                   f"Сохранена история последних: {recent}.\n"
-                   "Каждый новый запрос создаёт изображение заново.")
+    await m.answer(f"🎭 Создано фотомемов: {total}.\n"
+                   f"В истории последних: {recent}.\n"
+                   "Кадры берутся из интернет-шаблонов или твоей подборки, "
+                   "а русские подписи меняются.")
 
 
 @dp.message(Command("meme"))
