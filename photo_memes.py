@@ -312,28 +312,35 @@ def _download_photo(key, cache=CACHE):
 
 
 def upgrade_photos(media=ASSETS, cache=CACHE):
-    """Best effort upgrade to meme photos. Missing network leaves offline art intact."""
+    """Gradually replace original cartoons with permissively licensed meme photos.
+
+    Publish each finished photo immediately, not after *all* downloads finish.
+    First-run HTTPS failures are harmless: illustrated JPEGs still work offline.
+    """
     if os.getenv("MEME_STOCK_PHOTOS", "1") != "1":
         return 0
     count = 0
-    photos = {}
-    for key in set(item.photo for item in MEMES):
-        photos[key] = _download_photo(key, cache)
-    with GUARD:
-        for i, item in enumerate(MEMES):
-            source = photos.get(item.photo)
-            if source is None:
-                continue
-            target = _target(item, "photo", media)
-            if target.is_file() and target.stat().st_size > 2000:
-                count += 1
-                continue
-            try:
-                with Image.open(source) as photo:
-                    render(item, target, photo=photo, number=i)
-                count += 1
-            except (OSError, ValueError, UnidentifiedImageError):
-                continue
+    keys = list(dict.fromkeys(item.photo for item in MEMES))
+    for key in keys:
+        grouped = [(i, item) for i, item in enumerate(MEMES) if item.photo == key]
+        if all(_target(item, "photo", media).is_file() for _, item in grouped):
+            count += len(grouped)
+            continue
+        source = _download_photo(key, cache)
+        if source is None:
+            continue
+        with GUARD:
+            for i, item in grouped:
+                target = _target(item, "photo", media)
+                if target.is_file() and target.stat().st_size > 2000:
+                    count += 1
+                    continue
+                try:
+                    with Image.open(source) as photo:
+                        render(item, target, photo=photo, number=i)
+                    count += 1
+                except (OSError, ValueError, UnidentifiedImageError):
+                    continue
     return count
 
 
