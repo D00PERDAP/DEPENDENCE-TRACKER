@@ -612,12 +612,15 @@ def source_diagnostics(connect):
 
 
 def _keyboard(key):
+    """Maga-style native buttons. Meme creation and image selection stay untouched."""
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="😂 Зашло",callback_data=f"mv:1:{key}"),
-         InlineKeyboardButton(text="🥱 Не смешно",callback_data=f"mv:-1:{key}")],
-        [InlineKeyboardButton(text="🎲 Ещё мем",callback_data="mnext"),
-         InlineKeyboardButton(text="🏠 Меню",callback_data="v2:home")],
+        [InlineKeyboardButton(text="😂 Жи есть!", callback_data=f"mv:1:{key}", style="success"),
+         InlineKeyboardButton(text="🥱 Не зашло", callback_data=f"mv:-1:{key}")],
+        [InlineKeyboardButton(text="🎲 Ещё, вацок", callback_data="mnext", style="primary"),
+         InlineKeyboardButton(text="🏠 На базу", callback_data="v2:home")],
+        [InlineKeyboardButton(text="🎯 Выбрать тему", callback_data="v2:memethemes")],
     ])
+
 
 def _record(connect,uid,serial,source,photo,text,joke_id=None):
     key=hashlib.sha256(f"{uid}:{serial}:{source}".encode()).hexdigest()[:16]
@@ -645,13 +648,13 @@ async def send(message,uid,substance,risk,connect,*args,**kwargs):
             # Backward-compatible minimal message adapters in offline tests.
             await message.answer_photo(
                 BufferedInputFile(payload, filename=f"meme-{serial}.jpg"),
-                caption="🎭 Старый добрый мем",
+                caption="🦅 Лови прикол, вацок!",
                 reply_markup=_keyboard(key),
             )
         else:
             import ui_manager
             await ui_manager.render_photo(
-                message, payload, "🎭 Старый добрый мем", _keyboard(key),
+                message, payload, "🦅 Лови прикол, вацок!", _keyboard(key),
                 filename=f"meme-{serial}.jpg",
             )
         _record(connect,uid,serial,source,payload,str(risk),joke_id=joke_id)
