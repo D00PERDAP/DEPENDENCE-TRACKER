@@ -406,69 +406,151 @@ def _ai_image(risk,seed):
     return base64.b64decode(answer["data"][0]["b64_json"])
 
 def _prepare(connect, uid, substance, risk, allow_paid=False):
-    """Select a fresh one-sentence dark joke and a semantically matched REAL photo.
+    """Try all available REAL photo sources, even when a local bank is broken.
 
-    Priority: unlimited multi-person bank -> existing Mellstroy 600 bank ->
-    legally curated photo templates -> filtered Imgflip -> optional paid AI.
+    One corrupt local image, an unreadable optional reaction SQLite database,
+    or a stale catalog must not make the whole Telegram meme button unusable.
+    Priority: multi-person photos, Mellstroy frames, owner photos, Imgflip.
+    Only buy AI imagery when the owner explicitly enabled its API budget.
     """
     serial = meme_engine.next_serial(connect, uid)
     risk = risk if risk in LINES else "general"
     joke = joke_catalog.select(connect, uid, risk, serial)
-    sentence = joke["text"].rstrip(".")
-    # Each picture has ONE sentence, not two unrelated captions.
-    top, bottom = "", sentence
+    top, bottom = "", joke["text"].rstrip(".")
     with connect() as c:
         recent = {str(row[0]) for row in c.execute(
-            "SELECT template_id FROM real_meme_sent WHERE user_id=?",
-            (uid,)).fetchall()}
+            "SELECT template_id FROM real_meme_sent WHERE user_id=?", (uid,)).fetchall()}
+    attempts = []
 
-    real = reaction_bank.templates(
-        risk, seen=recent, limit=32, desired_mood=joke["mood"],
-        desired_scenes=joke_catalog.scene_tags(joke["text"],risk))
-    if not real:
-        real = mellstroy_bank.templates(risk, seen=recent, limit=32)
-    using_real = bool(real)
-    if using_real:
-        templates = real
-    else:
-        templates = _curated_templates()
+    def try_photo(template, credit):
         try:
-            templates += _top_templates()
+            data = _source_bytes(template)
+            result = compose(data, top, bottom, serial, credit)
+            return serial, str(template["id"]), result, joke["id"]
         except Exception as exc:
-            print(f"Imgflip catalog unavailable: {type(exc).__name__}: {exc}",
-                  flush=True)
-        templates += _premium_templates(connect)
+            attempts.append(f"{template.get('id', 'unknown')}: {type(exc).__name__}: {exc}")
+            print(f"Photomeme template failed ({template.get('id', '?')}): "
+                  f"{type(exc).__name__}: {exc}", flush=True)
+            return None
 
-        def rank(t):
-            curated = "path" in t
-            matches = t.get("risk") in (risk, "general")
-            return 0 if curated and matches else 1 if not curated else 2
-        random.shuffle(templates)
-        templates.sort(key=lambda t: (1 if t["id"] in recent else 0,
-                                      rank(t)))
+    # Each source is isolated; failure to enumerate one is not a reason to
+    # skip the other banks. Do not contact Imgflip when a local frame works.
+    try:
+        local = reaction_bank.templates(
+            risk, seen=recent, limit=32, desired_mood=joke["mood"],
+            desired_scenes=joke_catalog.scene_tags(joke["text"], risk))
+    except Exception as exc:
+        local = []
+        attempts.append(f"reaction_bank: {type(exc).__name__}: {exc}")
+        print(f"Reaction photo bank failed: {type(exc).__name__}: {exc}", flush=True)
+    for item in local[:16]:
+        result = try_photo(item, "Кадр из коллекции")
+        if result is not None:
+            return result
 
-    # Real people's faces are never generated or changed by an AI.
-    if not using_real and allow_paid and _budget(connect):
+    try:
+        legacy = mellstroy_bank.templates(risk, seen=recent, limit=32)
+    except Exception as exc:
+        legacy = []
+        attempts.append(f"mellstroy_bank: {type(exc).__name__}: {exc}")
+        print(f"Legacy Mellstroy bank failed: {type(exc).__name__}: {exc}",
+              flush=True)
+    for item in legacy[:16]:
+        result = try_photo(item, "Кадр из видео")
+        if result is not None:
+            return result
+
+    try:
+        approved = _curated_templates()
+    except Exception as exc:
+        approved = []
+        attempts.append(f"approved_photos: {type(exc).__name__}: {exc}")
+        print(f"Approved photo directory failed: {type(exc).__name__}: {exc}",
+              flush=True)
+    random.shuffle(approved)
+    approved.sort(key=lambda item: (
+        1 if item.get("id") in recent else 0,
+        0 if item.get("risk") in (risk, "general") else 1,
+    ))
+    for item in approved[:12]:
+        result = try_photo(item, "Фото автора")
+        if result is not None:
+            return result
+
+    # Owner explicitly opting into AI authorizes a billed image call.
+    # Never use a generated likeness of a real person.
+    if allow_paid and _budget(connect):
         try:
             photo = _ai_image(risk, serial)
             return serial, "ai", compose(photo, top, bottom, serial, "AI фото"), joke["id"]
         except Exception as exc:
-            print(f"Photo provider failed: {type(exc).__name__}: {exc}",
+            attempts.append(f"ai: {type(exc).__name__}: {exc}")
+            print(f"Optional photo generator failed: {type(exc).__name__}: {exc}",
                   flush=True)
-    for tpl in templates[:8 if using_real else 4]:
+
+    try:
+        catalog = _top_templates()
+    except Exception as exc:
+        catalog = []
+        attempts.append(f"imgflip: {type(exc).__name__}: {exc}")
+        print(f"Imgflip catalog unavailable: {type(exc).__name__}: {exc}", flush=True)
+
+    # Paid Premium search remains opt-in, limited and cached.
+    try:
+        catalog += _premium_templates(connect)
+    except Exception as exc:
+        attempts.append(f"premium: {type(exc).__name__}: {exc}")
+        print(f"Premium meme catalog unavailable: {type(exc).__name__}: {exc}",
+              flush=True)
+    random.shuffle(catalog)
+    catalog.sort(key=lambda t: 1 if str(t["id"]) in recent else 0)
+    for item in catalog[:8]:
+        result = try_photo(item, "Imgflip")
+        if result is not None:
+            return result
+
+    if attempts:
+        # Full reasons are printed to the service journal by the caller.
+        detail = "; ".join(attempts[-5:])
+        raise RuntimeError(f"No usable photo source. {detail}")
+    raise RuntimeError("Photo libraries are all empty. "
+                       "Import images with /memes_add or check Imgflip connectivity.")
+
+
+def source_diagnostics(connect):
+    """Safe, key-free diagnostic available to the Telegram administrator.
+
+    Checks an actual JPEG caption using only local photo sources, no downloads,
+    AI calls or changes to user sessions.
+    """
+    info = {}
+    for label, getter in (
+        ("reaction", lambda: reaction_bank.templates("general", limit=3)),
+        ("mellstroy", lambda: mellstroy_bank.templates("general", limit=3)),
+        ("approved", _curated_templates),
+    ):
         try:
-            photo = _source_bytes(tpl)
-            identifier = str(tpl["id"])
-            source_label = ("Кадр из коллекции" if identifier.startswith("reaction-")
-                            else "Кадр из видео" if identifier.startswith("mellstroy-")
-                            else "Imgflip" if "url" in tpl else "Фото автора")
-            payload = compose(photo, top, bottom, serial, source_label)
-            return serial, identifier, payload, joke["id"]
+            pictures = getter()
+            info[label] = {"available": len(pictures), "image_ok": False,
+                           "error": ""}
+            if pictures:
+                try:
+                    photo = _source_bytes(pictures[0])
+                    test = compose(photo, "", "БЛЯТЬ, ЭТО ТЕСТ", 1, label)
+                    with Image.open(io.BytesIO(test)) as image:
+                        image.verify()
+                    info[label]["image_ok"] = True
+                except Exception as exc:
+                    info[label]["error"] = f"{type(exc).__name__}: {str(exc)[:140]}"
         except Exception as exc:
-            print(f"Photo unavailable {tpl['id']}: "
-                  f"{type(exc).__name__}: {exc}", flush=True)
-    raise RuntimeError("Нет подходящих фото; загрузи разрешённые фотографии "
-                       "через /memes_add или проверь интернет.")
+            info[label] = {"available": 0, "image_ok": False,
+                           "error": f"{type(exc).__name__}: {str(exc)[:140]}"}
+    try:
+        info["jokes"] = joke_catalog.count()
+    except Exception as exc:
+        info["jokes_error"] = f"{type(exc).__name__}: {str(exc)[:140]}"
+    return info
+
 
 def _keyboard(key):
     return InlineKeyboardMarkup(inline_keyboard=[
