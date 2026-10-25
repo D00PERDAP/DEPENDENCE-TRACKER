@@ -40,8 +40,8 @@ def bank():
             raise ValueError("Duplicate joke id or text")
         if len(sentence) > 48 or len(sentence) < 3:
             raise ValueError(f"Joke length unsuitable for photo: {uid}")
-        if "\n" in sentence or sentence.count(".") > 1:
-            raise ValueError(f"Joke must be a short caption: {uid}")
+        if not re.fullmatch(r"[а-яёА-ЯЁ-]+", sentence):
+            raise ValueError(f"Joke must be exactly one Russian word: {uid}")
         if row["risk"] not in FIRST_TRY or row["mood"] not in KNOWN_MOODS:
             raise ValueError(f"Unrecognized tags: {uid}")
         if any(phrase in sentence.lower() for phrase in BANNED):
@@ -85,7 +85,7 @@ def init(connect):
         c.execute("""CREATE TABLE IF NOT EXISTS joke_catalog_meta(
                      key TEXT PRIMARY KEY, value TEXT NOT NULL)""")
         row=c.execute("SELECT value FROM joke_catalog_meta WHERE key='edition'").fetchone()
-        if row is None or row[0] != 'short-absurd-v2':
+        if row is None or row[0] != 'single-word-v3':
             c.execute("DELETE FROM joke_sent")
             c.execute("DELETE FROM joke_delivery")
             c.execute("""INSERT INTO joke_catalog_meta(key,value)
