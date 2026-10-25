@@ -88,6 +88,15 @@ def distance(a, b):
     return (int(a, 16) ^ int(b, 16)).bit_count()
 
 
+def list_review():
+    items = json.loads(INDEX.read_text(encoding="utf-8")) if INDEX.exists() else []
+    for item in items:
+        print(f"#{item['id']} [{item['status']}] {item['preview']}")
+        print(" Source:", item["source"])
+        print(" Image:", item["image_url"])
+    print("Total:", len(items))
+
+
 def run():
     REVIEW.mkdir(parents=True, exist_ok=True)
     items = json.loads(INDEX.read_text(encoding="utf-8")) if INDEX.exists() else []
@@ -143,4 +152,5 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    import sys
+    list_review() if len(sys.argv) > 1 and sys.argv[1] == "list" else run()
