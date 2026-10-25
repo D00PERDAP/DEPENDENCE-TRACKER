@@ -251,7 +251,6 @@ def install(dp, *, is_admin, connect, render_text, log):
         if choice not in VOICE_CHOICES:
             return await q.answer("Такого голоса нет, брат.", show_alert=True)
         set_voice(q.from_user.id, choice)
-        await q.answer("Запомнил, вацок!")
         await voice_menu(q, state)
 
     @dp.message(VoiceFlow.text)
