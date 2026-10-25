@@ -13,6 +13,7 @@ import shutil
 import re
 import gzip
 from html.parser import HTMLParser
+from html import unescape
 from urllib.parse import urljoin
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -204,9 +205,47 @@ def approve(number, filename, category):
     print("Added:", dest)
 
 
+
+class ImageMetadata(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.images = []
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "meta" and a.get("property") in ("og:image", "twitter:image"):
+            url = a.get("content", "")
+            if url.startswith("https://") and url not in self.images:
+                self.images.append(url)
+        if tag == "img":
+            url = a.get("data-src") or a.get("src") or ""
+            if url.startswith("https://") and url not in self.images:
+                self.images.append(url)
+
+
+def preview(number):
+    items = load()
+    item = next((x for x in items if x["id"] == number), None)
+    if not item:
+        raise SystemExit("No such ID")
+    print("Source:", item["page"])
+    req = urllib.request.Request(item["page"], headers=HEADERS)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as response:
+            raw = response.read(3_000_000)
+            charset = response.headers.get_content_charset() or "utf-8"
+        parser = ImageMetadata()
+        parser.feed(raw.decode(charset, errors="replace"))
+        if not parser.images:
+            print("No public image metadata found. Open source manually.")
+        for image in parser.images[:12]:
+            print("IMAGE:", unescape(image))
+    except (OSError, ValueError) as exc:
+        print("Preview unavailable:", type(exc).__name__, str(exc)[:160])
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["scan", "list", "approve", "reject", "clean-old"])
+    parser.add_argument("action", choices=["scan", "list", "approve", "reject", "clean-old", "preview"])
     parser.add_argument("id", nargs="?", type=int)
     parser.add_argument("image", nargs="?")
     parser.add_argument("--category", choices=sorted(CATEGORIES))
@@ -219,6 +258,10 @@ def main():
             if item["status"] == "pending":
                 print(f"{item['id']} [{item['category']}] {item['title']}\n    {item['page']}")
         print("Pending:", sum(x["status"] == "pending" for x in items))
+    elif args.action == "preview":
+        if args.id is None:
+            parser.error("Specify ID")
+        preview(args.id)
     elif args.action == "clean-old":
         items = load()
         count = 0
