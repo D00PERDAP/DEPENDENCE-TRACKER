@@ -136,7 +136,8 @@ async def render_voice(message, voice, caption, markup=None):
             chat_id=chat_id, voice=voice, caption=caption,
             reply_markup=markup,
         )
-        _set(chat_id, sent.message_id, "voice")
+        # Legacy screens table permits only text/photo; classify voice as non-text.
+        _set(chat_id, sent.message_id, "photo")
         if old and old[0] != sent.message_id:
             await _remove(message.bot, chat_id, old[0])
         return sent
