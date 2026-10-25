@@ -108,6 +108,13 @@ def init():
     v2_data.migrate(connect)
     meme_engine.init(connect)
     real_memes.init(connect)
+    # Previous admin uploader labeled every photo as "Админ".
+    # Reclassify those previously uploaded frames as vjlink, preserving files.
+    try:
+        with reaction_bank.db_session() as media_db:
+            media_db.execute("UPDATE reactions SET person='vjlink' WHERE person='Админ'")
+    except Exception as exc:
+        print(f"Legacy admin collection migration skipped: {exc}", flush=True)
 
 
 def kb(rows):
