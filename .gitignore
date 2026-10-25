@@ -18,3 +18,7 @@ assets/memes/**/original_*.jpg
 # Generated picture meme pack (re-created automatically on VPS)
 assets/memes/contextual/**/illustrated_*.jpg
 assets/memes/contextual/**/photo_*.jpg
+
+# Large raw videos and reaction frames MUST stay on VPS, never in GitHub
+imports/
+mellstroy_sources/
