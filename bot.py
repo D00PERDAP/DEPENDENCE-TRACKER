@@ -181,30 +181,16 @@ def record_meme(uid, path):
 
 
 async def deliver_meme(message, uid, category="general"):
-    """Always answer a user, even if Pillow/fonts/photo upload are unavailable."""
-    from aiogram.types import FSInputFile
-    path = choose_meme(category, user_id=uid) or choose_meme("general", user_id=uid)
-    if not path:
-        try:
-            await asyncio.to_thread(ensure_catalog, limit=20)
-        except (OSError, ValueError, RuntimeError) as exc:
-            print(f"Original meme rendering unavailable: {type(exc).__name__}")
-        path = choose_meme(category, user_id=uid) or choose_meme("general", user_id=uid)
-    if path:
-        try:
-            sent = await message.answer_photo(FSInputFile(path),
-                caption="💀 НЕ НАТВОРИ ДЕЛОВ • чёрный юмор, а не советы",
-                reply_markup=meme_buttons(path))
-            record_meme(uid, path)
-            return sent
-        except (OSError, ValueError, RuntimeError) as exc:
-            print(f"Meme photo delivery failed: {type(exc).__name__}")
-    from meme_studio import catalog
-    jokes = [x for x in catalog() if x.category == category] or list(catalog())
-    joke = random.choice(jokes)
-    return await message.answer(f"🎭 {joke.label}\n\n{joke.setup}\n\n💀 {joke.punchline}")
-
-
+    """Backwards-compatible photo-only API: no text-only joke fallback."""
+    map_risk = {"ex": "ex", "calls": "contacts", "money": "money",
+                "travel": "travel", "general": "general"}
+    with connect() as c:
+        session = active(c, uid)
+        settings = v2_data.get_settings(c, uid)
+        substance = session["substance"] if session else settings["last_substance"]
+    return await context_memes.send(message, uid, substance,
+                                    map_risk.get(category, "general"), connect,
+                                    meme_key, record_meme, meme_buttons)
 
 
 async def send_situation_meme(message, uid):
