@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageOps, ImageFont, ImageFilter, ImageEnhance
-from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import BufferedInputFile, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
 
 import meme_engine
 import mellstroy_bank
@@ -599,7 +599,7 @@ def _keyboard(key):
         [InlineKeyboardButton(text="😂 Зашло",callback_data=f"mv:1:{key}"),
          InlineKeyboardButton(text="🥱 Не смешно",callback_data=f"mv:-1:{key}")],
         [InlineKeyboardButton(text="🎲 Ещё мем",callback_data="mnext"),
-         InlineKeyboardButton(text="🎯 Темы",callback_data="v2:memethemes")],
+         InlineKeyboardButton(text="🏠 Меню",callback_data="v2:home")],
     ])
 
 def _record(connect,uid,serial,source,photo,text,joke_id=None):
@@ -624,9 +624,24 @@ async def send(message,uid,substance,risk,connect,*args,**kwargs):
         serial,source,payload=prepared[:3]
         joke_id=prepared[3] if len(prepared)>3 else None
         key=hashlib.sha256(f"{uid}:{serial}:{source}".encode()).hexdigest()[:16]
-        await message.answer_photo(BufferedInputFile(payload,filename=f"meme-{serial}.jpg"),
-                                   caption="🎭 Старый добрый мем",
-                                   reply_markup=_keyboard(key))
+        photo = BufferedInputFile(payload, filename=f"meme-{serial}.jpg")
+        if message.photo:
+            # Reuse the same photo message instead of flooding the chat.
+            await message.edit_media(
+                InputMediaPhoto(media=photo, caption="🎭 Старый добрый мем"),
+                reply_markup=_keyboard(key),
+            )
+        else:
+            await message.answer_photo(
+                photo, caption="🎭 Старый добрый мем",
+                reply_markup=_keyboard(key),
+            )
+            # Remove the obsolete bot menu after opening the photo viewer.
+            if message.from_user and message.from_user.is_bot:
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
         _record(connect,uid,serial,source,payload,str(risk),joke_id=joke_id)
         return True
     except Exception as exc:
