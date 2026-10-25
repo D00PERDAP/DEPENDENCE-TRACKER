@@ -286,6 +286,30 @@ async def memes_library_status(m: Message):
     )
 
 
+@dp.message(Command("memes_diag"))
+async def memes_diagnostics(m: Message):
+    """Admin-only local diagnostics; never print API keys or user medical data."""
+    if not is_meme_admin(m.from_user):
+        return
+    details = await asyncio.to_thread(real_memes.source_diagnostics, connect)
+    parts = ["🔧 ПРОВЕРКА ФОТОМЕМОВ"]
+    for kind, label in (("reaction", "Общая библиотека"),
+                        ("mellstroy", "Старые кадры Меллстроя"),
+                        ("approved", "Фото администратора")):
+        item = details.get(kind, {})
+        qty = item.get("available", 0)
+        usable = "✅" if item.get("image_ok") else "❌"
+        parts.append(f"{usable} {label}: проверено {qty} кандидатов")
+        if item.get("error"):
+            parts.append(f"   Ошибка: {item['error'][:110]}")
+    if "jokes" in details:
+        parts.append(f"📝 Подписей: {details['jokes']}")
+    if "jokes_error" in details:
+        parts.append(f"❌ Подписи: {details['jokes_error'][:110]}")
+    parts.append("Для полного отчёта: journalctl -u dependence-tracker -n 70")
+    await m.answer("\n".join(parts))
+
+
 @dp.message(Command("memes_preview"))
 async def memes_preview(m: Message):
     if not is_meme_admin(m.from_user):
