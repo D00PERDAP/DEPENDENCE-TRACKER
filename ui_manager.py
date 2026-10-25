@@ -23,7 +23,7 @@ def _connection():
     c.execute("""CREATE TABLE IF NOT EXISTS screens (
         chat_id INTEGER PRIMARY KEY,
         message_id INTEGER NOT NULL,
-        media_kind TEXT NOT NULL CHECK(media_kind IN ('text','photo'))
+        media_kind TEXT NOT NULL CHECK(media_kind IN ('text','photo','voice'))
     )""")
     return c
 
@@ -116,6 +116,27 @@ async def render_photo(message, photo, caption, markup=None, filename="screen.jp
             chat_id, photo=media(), caption=caption[:1024], reply_markup=markup
         )
         _set(chat_id, sent.message_id, "photo")
+        if old and old[0] != sent.message_id:
+            await _remove(message.bot, chat_id, old[0])
+        return sent
+
+
+async def render_voice(message, voice, caption, markup=None):
+    """Replace the registered screen with one playable voice note.
+
+    Telegram cannot edit an existing voice note in place. Post the new voice,
+    then delete the previous registered screen so the chat stays uncluttered.
+    """
+    chat_id = message.chat.id
+    async with _lock(chat_id):
+        old = _get(chat_id)
+        if old is None and getattr(message, "from_user", None) and message.from_user.is_bot:
+            old = (message.message_id, "voice" if message.voice else "text")
+        sent = await message.bot.send_voice(
+            chat_id=chat_id, voice=voice, caption=caption,
+            reply_markup=markup,
+        )
+        _set(chat_id, sent.message_id, "voice")
         if old and old[0] != sent.message_id:
             await _remove(message.bot, chat_id, old[0])
         return sent
