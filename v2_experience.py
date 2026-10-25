@@ -480,12 +480,12 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     current_sub = "Другое / не знаю"
                 if session and settings["last_substance"] == "Другое / не знаю":
                     db.set_setting(c, uid, last_substance=current_sub)
-            return await panel(q, f"🆘 МНЕ ПЛОХО\n\nПоследнее вещество: {current_sub}\n"
+            return await panel(q, f"🆘 Э, БРАТ, МАГА РЯДОМ\n\nПоследняя отметка: {current_sub}\n"
                                "При боли в груди, затруднении дыхания, судорогах, "
                                "потере сознания, перегреве — сразу вызывай скорую.", [
-                [("🚨 Немедленная помощь", "v2:emergency")],
-                [("🫀 Выбрать симптом", "v2:questions")],
-                [("💊 Другое вещество", "v2:meds")],
+                [("🚨 Срочно нужна помощь", "v2:emergency")],
+                [("🫀 Что именно беспокоит?", "v2:questions")],
+                [("📝 Исправить отметку", "v2:meds")],
                 [("🏠 На базу", "v2:home")],
             ])
 
@@ -524,7 +524,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             return await show_symptoms(q)
 
         if action == "emergency":
-            return await panel(q, safety.EMERGENCY_TEXT, [
+            return await panel(q, "🦅 Брат, сейчас не до приколов. Главное — твоя безопасность.\n\n" + safety.EMERGENCY_TEXT, [
                 [("🆘 Другие симптомы", "v2:questions")], [("🏠 На базу", "v2:home")],
             ])
 
