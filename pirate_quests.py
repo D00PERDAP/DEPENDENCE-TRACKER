@@ -38,8 +38,13 @@ def db():
         (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
          title TEXT NOT NULL, photo_id TEXT NOT NULL, latitude REAL NOT NULL,
          longitude REAL NOT NULL, FOREIGN KEY(user_id) REFERENCES players(user_id))""")
+    c.execute("CREATE TABLE IF NOT EXISTS banned_players (user_id INTEGER PRIMARY KEY)")
     c.commit()
     return c
+
+def is_banned(uid):
+    with db() as c:
+        return c.execute("SELECT 1 FROM banned_players WHERE user_id=?", (uid,)).fetchone() is not None
 
 def digest(word, salt):
     return hashlib.pbkdf2_hmac("sha256", word.encode("utf-8"), salt, 160000)
@@ -82,6 +87,10 @@ def install(dp):
     @dp.message(F.text.regexp(r"(?i)^клады$"))
     async def enter(m: Message,state:FSMContext):
         if m.chat.type!="private": return
+        if is_banned(m.from_user.id):
+            try: await m.delete()
+            except Exception: pass
+            return await m.answer("🚫 Доступ к гавани закрыт.")
         await state.clear()
         await clear_game(m.bot, m.from_user.id)
         await track(m.from_user.id, m)
@@ -112,6 +121,10 @@ def install(dp):
         await harbor(m,uid)
 
     async def guard(q,state):
+        if is_banned(q.from_user.id):
+            await state.clear()
+            await q.answer("Доступ к гавани закрыт.", show_alert=True)
+            return False
         if not (await state.get_data()).get("pirate_ok"):
             await q.answer("Введи «клады» и кодовое слово.",show_alert=True)
             return False
