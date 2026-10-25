@@ -588,10 +588,16 @@ async def send(message,uid,substance,risk,connect,*args,**kwargs):
         _record(connect,uid,serial,source,payload,str(risk),joke_id=joke_id)
         return True
     except Exception as exc:
-        print(f"Photomeme delivery failed: {type(exc).__name__}: {exc}",flush=True)
-        await message.answer("😕 Не удалось загрузить фотомем. Проверь интернет на сервере "
-                             "или добавь проверенные фотографии через /addmeme. "
-                             "Пока не буду подменять их странными мультяшками.")
+        import traceback
+        print(f"Photomeme delivery failed: {type(exc).__name__}: {exc}", flush=True)
+        traceback.print_exc()
+        await message.answer(
+            "❌ Фотомем не отправился. Возможна ошибка файла, шрифта "
+            "или доступа к библиотеке — не обязательно интернета.\n"
+            "Администратор: /memes_diag или журнал сервиса.\n"
+            "Добавить свои кадры: фото/видео с подписью "
+            "/memes_add YES Имя laugh."
+        )
         return False
 
 
