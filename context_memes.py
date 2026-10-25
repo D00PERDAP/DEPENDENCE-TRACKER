@@ -99,7 +99,8 @@ def candidates(substance, risk, assets=ASSETS):
     ]
     if risk in LEGACY_CATEGORIES:
         paths.append(Path(assets) / LEGACY_CATEGORIES[risk])
-    paths.append(Path(assets) / "general")
+    if risk in ("general", "check", "ok"):
+        paths.append(Path(assets) / "general")
     for directory in paths:
         if not directory.is_dir():
             continue
