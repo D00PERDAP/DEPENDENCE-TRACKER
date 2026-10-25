@@ -1,4 +1,4 @@
-"""3,000 delivered one-sentence jokes: formal quality, variety and user ratings."""
+"""3,000 short absurdist photo captions: variety and user ratings."""
 from __future__ import annotations
 
 import tempfile
@@ -21,24 +21,22 @@ class OneSentenceQualityTests(unittest.TestCase):
         self.assertEqual(set(Counter(x["risk"] for x in items).values()),{300})
         for item in items:
             txt=item["text"]
-            self.assertEqual(txt.count("."),1)
-            self.assertTrue(txt.endswith("."))
-            self.assertTrue(40<=len(txt)<=125)
+            self.assertLessEqual(txt.count("."),1)
+            self.assertTrue(3<=len(txt)<=48)
             self.assertNotIn("шмякобздюх",txt.lower())
             self.assertNotIn("не натвори делов",txt.lower())
             self.assertNotIn("http",txt.lower())
-            self.assertEqual(txt[0],txt[0].upper())
+            self.assertEqual(txt,txt.strip())
 
-    def test_drug_black_comedy_and_absurd_word_variety(self):
+    def test_short_one_word_absurdity_and_variety(self):
         entries=joke_catalog.bank()
-        sentences=" ".join(row["text"].casefold() for row in entries)
-        self.assertGreaterEqual(sum(1 for x in entries if
-            any(w in x["text"].casefold() for w in
-                ("меф","солев","нарко","марафон","отходняк","тусовк","стимулятор"))),1000)
-        self.assertGreaterEqual(sum(1 for x in entries if
-            any(w in x["text"].casefold() for w in
-                ("нахуй","ебан","ёбан","пиздец","охуел","хуйн","проеб","блят"))),450)
+        captions=[x["text"] for x in entries]
+        self.assertIn("арахис",captions)
+        self.assertIn("я в душе под мефом",captions)
+        self.assertGreaterEqual(sum(len(t.split())==1 for t in captions),150)
+        self.assertGreaterEqual(sum(len(t)<=30 for t in captions),800)
         self.assertGreaterEqual(len({x["mood"] for x in entries}),7)
+        self.assertFalse(any("а на допрос" in t for t in captions))
 
 
 class SelectionAndRatingsTests(unittest.TestCase):
