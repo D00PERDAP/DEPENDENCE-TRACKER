@@ -143,7 +143,7 @@ async def followup_loop(bot, connect, kb):
 
 def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             now, stamp, meme_key, record_meme, meme_buttons, is_admin=lambda uid: False,
-            home_screen=None):
+            home_screen=None, show_photo=None):
     """Register handlers without importing bot.py again when launched as __main__."""
 
     def setup_state(c, uid):
@@ -181,17 +181,26 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             data = db.monthly_summary(c, uid)
         try:
             image = await asyncio.to_thread(stats_dashboard.make_dashboard, data)
-            await message.answer_photo(
-                BufferedInputFile(image, filename="my-statistics.jpg"),
-                caption=stats_dashboard.summary_caption(data),
-                reply_markup=kb([
-                    [("🔄 Обновить расклад", "v2:stats"), ("🏠 На базу", "v2:home")],
-                ]),
-            )
+            markup = kb([
+                [("🔄 Обновить", "v2:stats"), ("🏠 На базу", "v2:home")],
+            ])
+            if show_photo is not None:
+                await show_photo(
+                    message, image, stats_dashboard.summary_caption(data),
+                    markup, filename="maga-stats.jpg",
+                )
+            else:
+                await message.answer_photo(
+                    BufferedInputFile(image, filename="maga-stats.jpg"),
+                    caption=stats_dashboard.summary_caption(data),
+                    reply_markup=markup,
+                )
         except (OSError, ValueError, RuntimeError) as exc:
             print(f"Stats chart rendering problem: {type(exc).__name__}: {exc}")
-            await message.answer(stats_dashboard.summary_caption(data) +
-                                 "\n\nНе удалось построить изображение. Проверь шрифты и Pillow на сервере.")
+            await display(message, stats_dashboard.summary_caption(data) +
+                          "\n\nИзображение недоступно.", kb([
+                              [("🏠 На базу", "v2:home")],
+                          ]))
 
     @dp.message(F.text, Command("addmeme"))
     async def add_meme_help(message):
