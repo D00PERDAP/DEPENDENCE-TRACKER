@@ -11,6 +11,8 @@ import hashlib
 import json
 import shutil
 import re
+from html.parser import HTMLParser
+from urllib.parse import urljoin
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -22,7 +24,12 @@ INDEX = ROOT / "data" / "meme_candidates.json"
 FEEDS = ROOT / "data" / "meme_feeds.txt"
 MEDIA = ROOT / "assets" / "memes"
 CATEGORIES = {"ex", "calls", "money", "travel", "general"}
-DEFAULT_FEEDS = [("general", "https://pikabu.ru/xmlfeeds.php?cmd=popular")]
+DEFAULT_FEEDS = []
+COMMUNITIES = [
+    ("general", "https://pikabu.ru/community/Drugsmeme"),
+    ("general", "https://pikabu.ru/community/blackhumour"),
+    ("general", "https://pikabu.ru/community/cringe"),
+]
 KEYWORDS = re.compile(r"наркот|нарком|мефедрон|мефчик|солев(ой|ые|ик)|упорот|под веществ|психоактив|зависимост|передоз|ломк|трезвост|похмел|запой", re.I)
 
 SEEDS = [
@@ -63,6 +70,37 @@ def feed_links(url):
                 break
 
 
+class StoryLinks(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.links = []
+        self.current = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        href = attrs.get("href", "")
+        if tag == "a" and re.search(r"^https://pikabu\\.ru/story/[\\w%-]+_\\d+(?:[/?#]|$)", href):
+            self.current = [href, ""]
+
+    def handle_data(self, data):
+        if self.current is not None:
+            self.current[1] += data
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self.current is not None:
+            self.links.append(tuple(self.current))
+            self.current = None
+
+
+def community_links(url):
+    req = urllib.request.Request(url, headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=20) as response:
+        html = response.read(2_000_000).decode("utf-8", errors="replace")
+    parser = StoryLinks()
+    parser.feed(html)
+    return parser.links
+
+
 def scan():
     items = load()
     known = {x.get("page") for x in items}
@@ -84,6 +122,13 @@ def scan():
                     sources.append((category, title, link))
         except (OSError, ValueError, ET.ParseError) as exc:
             print("Feed unavailable:", type(exc).__name__, line[:90])
+    for category, url in COMMUNITIES:
+        try:
+            for link, title in community_links(url):
+                if KEYWORDS.search(title) and title.strip():
+                    sources.append((category, title.strip(), link))
+        except (OSError, ValueError) as exc:
+            print("Community unavailable:", type(exc).__name__, url)
     added = 0
     for category, title, link in sources:
         if link in known:
