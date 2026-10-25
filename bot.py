@@ -430,7 +430,7 @@ async def admin_collections(q: CallbackQuery):
     await display(q.message, "😂 МЕМНЫЙ СКЛАД МАГИ\n\n" + "\n".join(lines), kb([
         [("➕ Добавить фото", "admin:media")],
         [("➕ Новый персонаж", "admin:newperson")],
-        [("⬅️ Админка", "admin:panel")],
+        [("⬅️ Мемный центр", "admin:memehub")],
     ]))
 
 
