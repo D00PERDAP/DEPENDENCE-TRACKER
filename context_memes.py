@@ -216,30 +216,35 @@ def choose_photo(substance, risk, connect, uid, meme_key):
 
 
 async def send(message, uid, substance, risk, connect, meme_key, record_meme, meme_buttons):
-    """Guarantee meme output is an image or an honest error, never a text joke."""
-    from photo_memes import ensure_pack
+    """Send a JPEG meme, with in-memory picture fallback for unwritable VPS disks."""
     import asyncio
-    options = candidates(substance, risk)
-    if not options:
-        # First-run offline pack requires no network and is safe to generate lazily.
+    from aiogram.types import BufferedInputFile
+    from photo_memes import ensure_pack, inline_picture
+    path = choose_photo(substance, risk, connect, uid, meme_key)
+    if path is None:
         try:
             await asyncio.to_thread(ensure_pack)
+            path = choose_photo(substance, risk, connect, uid, meme_key)
         except Exception as exc:
-            print(f"Picture meme generation error: {type(exc).__name__}: {exc}", flush=True)
-    chosen = choose_photo(substance, risk, connect, uid, meme_key)
-    if chosen is None:
-        # Can't call a text joke a picture meme. Do not fabricate success.
-        await message.answer("Не могу показать картинку: библиотека изображений пока недоступна. "
-                             "Попробуй ещё раз или сообщи администратору.")
-        return False
+            print(f"Cannot create disk picture library: {type(exc).__name__}: {exc}", flush=True)
     try:
-        await message.answer_photo(FSInputFile(chosen),
-            caption="🎭 Мем • не делай глупостей",
-            reply_markup=meme_buttons(chosen))
+        if path is not None:
+            await message.answer_photo(
+                FSInputFile(path), caption="🎭 Мем • не натвори делов",
+                reply_markup=meme_buttons(path),
+            )
+            record_meme(uid, path)
+        else:
+            # No persistent album available? Render the actual picture in memory,
+            # not a fake "text meme".
+            data = await asyncio.to_thread(inline_picture, substance, risk)
+            await message.answer_photo(
+                BufferedInputFile(data, filename="meme.jpg"),
+                caption="🎭 Мем • не натвори делов",
+            )
+        return True
     except Exception as exc:
-        print(f"Picture meme Telegram delivery error: {type(exc).__name__}: {exc}", flush=True)
-        await message.answer("Не удалось отправить картинку в Telegram. "
-                             "Попробуй кнопку «Мем» ещё раз.")
+        print(f"Picture meme delivery failed: {type(exc).__name__}: {exc}", flush=True)
+        await message.answer("Картинка не отправилась. Ошибка записана в журнал сервера. "
+                             "Попробуй ещё раз.")
         return False
-    record_meme(uid, chosen)
-    return True
