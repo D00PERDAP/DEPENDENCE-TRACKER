@@ -7,7 +7,13 @@ No scraped third-party images are automatically republished.
 from __future__ import annotations
 
 import random
+import hashlib
+import io
+import os
+from datetime import datetime, timezone
 from pathlib import Path
+from PIL import Image, ImageOps, UnidentifiedImageError
+from meme_review_store import transact
 
 from aiogram.types import FSInputFile
 
@@ -118,6 +124,48 @@ def joke(substance, risk):
     if risk == "general" and sub in SUBSTANCE_EXTRAS:
         return random.choice(SUBSTANCE_EXTRAS[sub])
     return random.choice(TEXT_JOKES[risk])
+
+
+def import_admin_photo(photo_bytes, substance_key, risk_key, admin_id, assets=ASSETS):
+    """Import an owner-approved image, strip EXIF and record provenance."""
+    allowed_subs = set(SUB_KEYS.values())
+    if substance_key not in allowed_subs or risk_key not in RISK_KEYS:
+        raise ValueError("Invalid meme tags")
+    if not photo_bytes or len(photo_bytes) > 8_000_000:
+        raise ValueError("Missing or oversized photo")
+    try:
+        with Image.open(io.BytesIO(photo_bytes)) as original:
+            original.verify()
+        with Image.open(io.BytesIO(photo_bytes)) as original:
+            if original.width < 300 or original.height < 180 or original.width * original.height > 20_000_000:
+                raise ValueError("Photo dimensions not supported")
+            clean = ImageOps.exif_transpose(original).convert("RGB")
+            clean.thumbnail((1600, 1600))
+            output = io.BytesIO()
+            clean.save(output, "JPEG", quality=85, optimize=True)
+            data = output.getvalue()
+    except (OSError, UnidentifiedImageError) as exc:
+        raise ValueError("Invalid image") from exc
+    sha = hashlib.sha256(data).hexdigest()
+    dest = Path(assets) / "contextual" / substance_key / risk_key / (sha + ".jpg")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not dest.exists():
+        temp = dest.with_name(dest.name + ".tmp")
+        try:
+            temp.write_bytes(data)
+            os.replace(temp, dest)
+        finally:
+            temp.unlink(missing_ok=True)
+    # Store immutable confirmation of administrator rights statement.
+    def append(rows):
+        if not any(item.get("sha256") == sha for item in rows):
+            rows.append({
+                "sha256": sha, "file": str(dest.relative_to(Path(assets))),
+                "admin_id": int(admin_id), "approved_at": datetime.now(timezone.utc).isoformat(),
+                "rights_confirmed_by_admin": True, "substance": substance_key, "risk": risk_key,
+            })
+    transact(append, ROOT / "data" / "meme_admin_imports.json")
+    return dest
 
 
 async def send(message, uid, substance, risk, connect, meme_key, record_meme, meme_buttons):
