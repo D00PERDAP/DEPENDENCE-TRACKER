@@ -203,18 +203,19 @@ class TimerDeliveryTests(unittest.IsolatedAsyncioTestCase):
     async def _single_tick(self):
         async def stop_sleep(*args, **kwargs):
             raise asyncio.CancelledError
-        with patch.object(bot.context_memes, "choose_photo", return_value=self.fake_image):
-            with patch.object(bot, "record_meme"):
-                with patch.object(bot.asyncio, "sleep", side_effect=stop_sleep):
-                    with self.assertRaises(asyncio.CancelledError):
-                        await bot.reminder_loop(self.bot_api)
+        with patch.object(bot.asyncio, "sleep", side_effect=stop_sleep):
+            with self.assertRaises(asyncio.CancelledError):
+                await bot.reminder_loop(self.bot_api)
 
     async def test_due_photo_sent_even_for_40_hour_session(self):
         await self._single_tick()
         self.bot_api.send_photo.assert_awaited_once()
         args, kw = self.bot_api.send_photo.await_args
         self.assertEqual(args[0], self.uid)
-        self.assertTrue(hasattr(args[1], "path"))
+        self.assertTrue(hasattr(args[1], "data"))
+        with Image.open(io.BytesIO(args[1].data)) as picture:
+            self.assertEqual(picture.format, "JPEG")
+            self.assertEqual(picture.size, (850, 850))
         self.assertIn("Мефедрон", kw["caption"])
         with bot.connect() as c:
             self.assertIsNone(c.execute("SELECT ended FROM sessions WHERE id=?",
@@ -224,16 +225,15 @@ class TimerDeliveryTests(unittest.IsolatedAsyncioTestCase):
             next_at = datetime.fromisoformat(alert["next_at"])
             self.assertGreaterEqual(next_at, self.t + timedelta(minutes=9))
 
-    async def test_read_only_library_still_delivers_photo_reminder(self):
+    async def test_photo_reminder_never_needs_the_disk_library(self):
         async def stop_sleep(*args, **kwargs):
             raise asyncio.CancelledError
 
-        with patch.object(bot.context_memes, "choose_photo", return_value=None):
-            with patch.object(photo_memes, "ensure_pack",
-                              side_effect=PermissionError("assets are read only")):
-                with patch.object(bot.asyncio, "sleep", side_effect=stop_sleep):
-                    with self.assertRaises(asyncio.CancelledError):
-                        await bot.reminder_loop(self.bot_api)
+        with patch.object(photo_memes, "ensure_pack",
+                          side_effect=PermissionError("assets are read only")):
+            with patch.object(bot.asyncio, "sleep", side_effect=stop_sleep):
+                with self.assertRaises(asyncio.CancelledError):
+                    await bot.reminder_loop(self.bot_api)
         self.bot_api.send_photo.assert_awaited_once()
         sent = self.bot_api.send_photo.await_args.args[1]
         with Image.open(io.BytesIO(sent.data)) as image:
