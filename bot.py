@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile
@@ -113,6 +113,17 @@ async def home(message, uid):
     else:
         text = "💀 НЕ НАТВОРИ ДЕЛОВ\n\nВыбери, чего НЕ хочешь натворить.\nПотом включи напоминания. Всё."
     await display(message, text, home_buttons(bool(session)))
+
+
+@dp.message(Command("meme"))
+async def send_test_meme(m: Message):
+    """Send one approved local meme on request, never an unreviewed web image."""
+    path = choose_meme("general")
+    if not path:
+        await m.answer("Пока нет проверенных мемов. Сначала добавь картинку через meme_collector.py approve.")
+        return
+    from aiogram.types import FSInputFile
+    await m.answer_photo(FSInputFile(path), caption="💀 Не натвори делов. Ты сам выбираешь, чего не делать.")
 
 
 @dp.message(CommandStart())
