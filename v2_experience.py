@@ -99,7 +99,7 @@ def reminder_text(substance, titles, event_tag=None):
     risk = event_tag if event_tag in safety.IMPULSE_ADVICE else random.choice(risks_from_titles(titles))
     main = RISK_NUDGES.get(risk) or random.choice(REMINDER_LINES)
     selected = "\n".join("☑️ " + x[:85] for x in titles[:4])
-    return (f"🔔 НЕ НАТВОРИ ДЕЛОВ • {substance}\n\n{main}\n\n"
+    return (f"🔔 Э, БРАТ, НЕ НАТВОРИ ДЕЛОВ • {substance}\n\n{main}\n\n"
             f"{selected or 'Не действуй на автомате.'}\n\n"
             "Если что-то тревожит, нажми «Мне плохо» или «Меня несёт»."), risk
 
@@ -118,12 +118,12 @@ async def followup_loop(bot, connect, kb):
         try:
             for item in db.claim_due_followups(connect):
                 text = (
-                    "☀️ Как ты после сессии? Получилось отдохнуть? Было что-то, о чём жалеешь?\n"
-                    "Отметь самочувствие — всё останется в личной статистике."
+                    "☀️ Салам, брат! Как ты после сопровождения? Удалось отдохнуть? Не натворил лишнего?\n"
+                    "Отметь самочувствие, вацок — это увидишь только в своих раскладах."
                     if item["kind"] == "after" else
-                    "⏳ Десять минут прошло. Как сейчас? Желание действовать сразу стало слабее?"
+                    "⏳ Э, брат, десять минут прошло. Как ты? Порыв уже отпускает?"
                     if item["kind"] == "urge" else
-                    "🫀 Проверка через 10 минут. Тебе лучше? При опасных симптомах не жди ответа бота — вызывай скорую."
+                    "🫀 Вацок, проверка через десять минут. Тебе лучше? При опасных симптомах не жди ответа бота — вызывай скорую."
                 )
                 try:
                     markup = ([
@@ -169,7 +169,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
         with connect() as c:
             substance = db.get_settings(c, q.from_user.id)["last_substance"]
         rows = [[(label, f"v2:sym:{tag}")] for tag, label in safety.SYMPTOMS]
-        rows += [[("🔥 Хочу продолжить / натворить делов", "v2:impulses")],
+        rows += [[("🔥 Тянет на лишние дела", "v2:impulses")],
                  [("🚨 Нужна скорая", "v2:emergency")],
                  [("⬅️ Другое вещество", "v2:safety")]]
         await panel(q, f"🩺 {substance}\n\nЧто происходит сейчас?\n"
@@ -264,7 +264,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     "Что нужно прямо сейчас?")
             rows = [
                 [("😂 Мемчик", "v2:meme"), ("🔥 Держи себя, брат", "v2:impulses")],
-                [("🫀 Как ты, вацок?", "v2:checkin"), ("🆘 Помощь", "v2:safety")],
+                [("🫀 Как ты, вацок?", "v2:checkin"), ("🆘 Нужна помощь", "v2:safety")],
                 [("⚙️ Моё, брат", "ui:mine")],
             ]
             rows.insert(0, [("⏹ Закончить, брат", "v2:finish")] if session
@@ -286,7 +286,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     [("⏰ Частота, брат", "v2:settings"), ("☑️ Моё слово", "check")],
                     [("⏹ Закончить, брат", "v2:finish"), ("🏠 На базу", "v2:home")]])
             rows = [[(name, f"v2:sub:{i}")] for i, name in enumerate(safety.SUBSTANCES)]
-            rows += [[("☑️ Сначала выбрать запреты", "check")], [("🏠 На базу", "v2:home")]]
+            rows += [[("☑️ Сначала дай себе слово", "check")], [("🏠 На базу", "v2:home")]]
             return await panel(q, "▶️ НАЧАЛО\n\nОтметь вещество или «Другое / не знаю». "
                                "Можно выбрать без объяснений. Затем назначим частоту напоминаний.", rows)
 
@@ -301,8 +301,8 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 db.set_setting(c, uid, last_substance=substance)
             return await panel(q, f"✅ {substance}\n\n"
                                "Как часто присылать напоминания? Начнём сразу после выбора.", [
-                [("⚡ Каждые 10 мин", "v2:freq:10"), ("🔔 15 мин", "v2:freq:15")],
-                [("🕒 30 мин", "v2:freq:30"), ("🌙 60 мин", "v2:freq:60")],
+                [("⚡ Каждые 10 минут", "v2:freq:10"), ("🔔 Каждые 15 минут", "v2:freq:15")],
+                [("🕒 Каждые 30 минут", "v2:freq:30"), ("🌙 Раз в час", "v2:freq:60")],
                 [("☑️ Моё слово", "check"), ("⬅️ Обратно, брат", "v2:start")]])
 
         if action in ("freq", "setfreq"):
@@ -395,7 +395,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 db.record_event(c, uid, session["id"] if session else None, "risk", param)
             await panel(q, safety.impulse_message(param, substance), [
                 [("⏳ Проверить через 10 мин", "v2:wait:urge"), ("✅ Передумал", "v2:better")],
-                [("🔔 Чаще напоминать", "v2:boost"), ("🆘 Мне плохо", "v2:safety")],
+                [("🔔 Напоминай чаще, брат", "v2:boost"), ("🆘 Мне плохо", "v2:safety")],
                 [("🏠 На базу", "v2:home")],
             ])
             if param != "paranoia":
@@ -449,7 +449,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 db.schedule_alert(c, uid, session["id"], 10, now())
             return await panel(q, "⚡ На ближайший час включены напоминания примерно каждые 10 минут.\n"
                                "Выключить их можно в «Настройках».",
-                               [[("⚙️ Настроить", "v2:settings"), ("🏠 На базу", "v2:home")]])
+                               [[("⚙️ Настроить, брат", "v2:settings"), ("🏠 На базу", "v2:home")]])
 
         if action == "wait":
             kind = param if param in ("urge", "wellbeing", "after") else "urge"
@@ -468,7 +468,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             return await panel(q, "🫀 КАК ТЫ?\n\nВыбирай, что ближе прямо сейчас. "
                                "Это не диагноз — ответы помогут подобрать действие.", [
                 [("👌 В порядке", "v2:feel:ok"), ("😰 Паника", "v2:feel:panic")],
-                [("🔥 Тянет творить трэш", "v2:impulses"), ("😵 Не сплю", "v2:hold:sleep")],
+                [("🔥 Тянет натворить делов", "v2:impulses"), ("😵 Не сплю", "v2:hold:sleep")],
                 [("🤢 Физически плохо", "v2:safety"), ("🚨 Срочно", "v2:emergency")],
                 [("🏠 На базу", "v2:home")],
             ])
