@@ -166,7 +166,8 @@ def run():
     tmp = INDEX.with_suffix(".tmp")
     tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(INDEX)
-    print(f"Review images added: {added}. Total queued: {len(items)}.")\n    print("Pinterest search terms configured:", len(PINTEREST_TERMS), "(no unauthorized Pinterest scraping).")
+    print(f"Review images added: {added}. Total queued: {len(items)}.")
+    print("Pinterest search terms configured:", len(PINTEREST_TERMS), "(no unauthorized Pinterest scraping).")
     print("Previews are NOT published. Source rights and actual meme relevance must be verified.")
 
 
