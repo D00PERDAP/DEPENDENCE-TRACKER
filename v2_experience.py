@@ -263,12 +263,11 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     f"Напоминания: {'не включены' if not session else '⏸ тишина' if settings['quiet'] else str(settings['base_interval']) + ' минут'}\n\n"
                     "Что нужно прямо сейчас?")
             rows = [
-                [("😂 Мемчик", "v2:meme"), ("🔥 Держи себя, брат", "v2:impulses")],
-                [("🫀 Как ты, вацок?", "v2:checkin"), ("🆘 Нужна помощь", "v2:safety")],
-                [("⚙️ Моё, брат", "ui:mine")],
+                [("⏹ Закончить, брат" if session else "💀 Сопровождение", "v2:finish" if session else "v2:start")],
+                [("☑️ Моё слово", "check"), ("📊 Расклады Маги", "v2:stats")],
+                [("😂 Мемчик от Маги", "v2:meme"), ("🆘 Нужна помощь", "v2:safety")],
+                [("⚙️ Настройки", "ui:mine")],
             ]
-            rows.insert(0, [("⏹ Закончить, брат", "v2:finish")] if session
-                        else [("▶️ Погнали, вацок", "v2:start")])
             if is_admin(uid):
                 rows.append([("🛠 Штаб Маги", "admin:panel")])
             await panel(q, text, rows)
