@@ -169,6 +169,12 @@ def init(connect):
             CREATE TABLE IF NOT EXISTS real_meme_ai_budget(
                 day TEXT PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS real_meme_search_budget(
+                day TEXT PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS real_meme_search_cache(
+                query TEXT PRIMARY KEY, fetched_at TEXT NOT NULL, results TEXT NOT NULL
+            );
         """)
 
 def _json_url(url, data=None, token=None, timeout=7):
@@ -211,6 +217,71 @@ def _top_templates():
     with GUARD:
         _LIST_CACHE={"time":time.monotonic(),"items":found}
     return found
+
+def _premium_templates(connect):
+    """Optional Premium photo-template search. Owner must opt in explicitly.
+
+    At most two paid search requests per UTC day, even across restarts. Daily
+    results are cached in SQLite. NSFW search deliberately remains disabled.
+    """
+    key=os.getenv("IMGFLIP_API_KEY","").strip()
+    if (not key or os.getenv("MEME_PREMIUM_SEARCH","0")!="1"):
+        return []
+    now=datetime.now(timezone.utc)
+    day=now.strftime("%Y-%m-%d")
+    query_terms=[x.strip() for x in os.getenv(
+        "MEME_PREMIUM_TERMS","пошалим;русский мем").split(";") if x.strip()][:2]
+    output=[]
+    for query in query_terms:
+        with connect() as c:
+            prev=c.execute("SELECT fetched_at,results FROM real_meme_search_cache"
+                           " WHERE query=?",(query,)).fetchone()
+        if prev:
+            try:
+                age=(now-datetime.fromisoformat(prev["fetched_at"])).total_seconds()
+                if age<86400:
+                    output.extend(json.loads(prev["results"]))
+                    continue
+            except (ValueError,TypeError,KeyError):
+                pass
+        with connect() as c:
+            c.execute("BEGIN IMMEDIATE")
+            row=c.execute("SELECT attempts FROM real_meme_search_budget WHERE day=?",
+                          (day,)).fetchone()
+            if row and row["attempts"]>=2:
+                continue
+            c.execute("""INSERT INTO real_meme_search_budget(day,attempts) VALUES(?,1)
+                       ON CONFLICT(day) DO UPDATE SET attempts=attempts+1""",(day,))
+        try:
+            answer=_json_url("https://api.imgflip.com/search_memes",
+                             data={"query":query,"type":"image","include_nsfw":"0"},
+                             token=key,timeout=10)
+            if not answer.get("success"):
+                raise RuntimeError("Imgflip Premium search error")
+            approved=[]
+            for item in answer.get("data",{}).get("memes",[])[:80]:
+                ident=str(item.get("id",""))
+                url=str(item.get("url",""))
+                name=str(item.get("name","")).lower()
+                if (not ident.isdigit() or
+                    not re.fullmatch(r"https://i\.imgflip\.com/[a-zA-Z0-9]+\.(?:jpg|jpeg|png|webp)",url)
+                    or any(x in name for x in ("kid","child","teen","baby","little girl","young boy"))
+                    or int(item.get("width") or 0)<280
+                    or int(item.get("height") or 0)<250):
+                    continue
+                approved.append({"id":ident,"url":url,"name":str(item.get("name",""))})
+            with connect() as c:
+                c.execute("""INSERT INTO real_meme_search_cache(query,fetched_at,results)
+                             VALUES(?,?,?) ON CONFLICT(query)
+                             DO UPDATE SET fetched_at=excluded.fetched_at,
+                                           results=excluded.results""",
+                          (query,now.isoformat(timespec="seconds"),json.dumps(approved,ensure_ascii=False)))
+            output.extend(approved)
+        except Exception as exc:
+            print(f"Imgflip Premium search failed (query omitted): "
+                  f"{type(exc).__name__}: {exc}",flush=True)
+    return output
+
 
 def _curated_templates():
     # A photo submitted by the Telegram admin with /addmeme ... YES is both
@@ -431,6 +502,9 @@ def _prepare(connect,uid,substance,risk,allow_paid=False):
         templates+=_top_templates()
     except Exception as exc:
         print(f"Imgflip catalog unavailable: {type(exc).__name__}: {exc}",flush=True)
+    # Never make Premium calls unless the owner explicitly configured the key
+    # and enabled MEME_PREMIUM_SEARCH=1.
+    templates+=_premium_templates(connect)
     # Apply strong topic matching and exclude images seen very recently.
     # A user's own approved pictures go first when they fit their context.
     with connect() as c:
