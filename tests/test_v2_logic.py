@@ -1,5 +1,7 @@
 """Regression tests for redesigned Telegram UX and health/safety/stats logic."""
 import io
+import asyncio
+from types import SimpleNamespace
 import tempfile
 import unittest
 from collections import Counter
@@ -109,6 +111,21 @@ class V2DataTests(unittest.TestCase):
             summary = db.monthly_summary(c, 42, self.at)
         self.assertEqual(summary["episodes"], 0)
         self.assertTrue(stats_dashboard.make_dashboard(summary).startswith(b"\xff\xd8"))
+
+
+class PrivateChatTests(unittest.TestCase):
+    def test_group_handlers_never_receive_sensitive_events(self):
+        calls = []
+        async def handler(event, data):
+            calls.append(event)
+            return "handled"
+        middleware = bot.PrivateChatOnly()
+        group = SimpleNamespace(chat=SimpleNamespace(type="group"))
+        private = SimpleNamespace(chat=SimpleNamespace(type="private"))
+        self.assertIsNone(asyncio.run(middleware(handler, group, {})))
+        self.assertEqual(calls, [])
+        self.assertEqual(asyncio.run(middleware(handler, private, {})), "handled")
+        self.assertEqual(len(calls), 1)
 
 
 class V2SafetyTests(unittest.TestCase):
