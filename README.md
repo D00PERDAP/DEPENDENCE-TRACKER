@@ -56,6 +56,7 @@ git status --short
 git fetch origin feature/minimal-checklist-tracker
 git switch feature/minimal-checklist-tracker || git switch --track -c feature/minimal-checklist-tracker origin/feature/minimal-checklist-tracker
 git pull --ff-only
+.venv/bin/python backup_before_upgrade.py
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m compileall -q bot.py v2_experience.py v2_data.py harm_reduction.py stats_dashboard.py context_memes.py
 .venv/bin/python -m unittest discover -s tests -v
@@ -63,7 +64,7 @@ sudo systemctl restart dependence-tracker
 sudo systemctl is-active dependence-tracker
 ~~~
 
-Перед обновлением желательно сделать безопасную резервную копию tracker.db (вместе с возможными WAL-файлами — через SQLite backup API), а не просто копировать активную WAL-базу. Все изменения схемы v2 — **добавление новых таблиц**, без удаления старых.
+Команда backup_before_upgrade.py создаёт согласованную копию tracker.db через SQLite backup API и проверяет целостность. Старые резервные копии не удаляются. Все изменения схемы v2 — **добавление новых таблиц**, без удаления старых.
 
 **Не удалять:** .env, tracker.db, data/, backups/, assets/memes/. Токены оставляются в .env, не в Git.
 
