@@ -157,14 +157,13 @@ async def display(message, text, markup):
 
 
 def home_buttons(running=False, admin=False):
-    # One compact dashboard; secondary features stay inside their sections.
+    # Compact public menu. The private harbor remains command-only.
     rows = [
-        [("😂 Мемчик", "v2:meme"), ("🔥 Держи себя, брат", "v2:impulses")],
-        [("🫀 Как ты, вацок?", "v2:checkin"), ("🆘 Помощь", "v2:safety")],
-        [("⚙️ Моё, брат", "ui:mine")],
+        [("⏹ Закончить, брат" if running else "💀 Сопровождение", "v2:finish" if running else "v2:start")],
+        [("☑️ Моё слово", "check"), ("📊 Расклады Маги", "v2:stats")],
+        [("😂 Мемчик от Маги", "v2:meme"), ("🆘 Нужна помощь", "v2:safety")],
+        [("⚙️ Настройки", "ui:mine")],
     ]
-    rows.insert(0, [("⏹ Закончить, брат", "v2:finish")] if running
-                else [("▶️ Погнали, вацок", "v2:start")])
     if admin:
         rows.append([("🛠 Штаб Маги", "admin:panel")])
     return kb(rows)
@@ -518,8 +517,7 @@ async def admin_media_upload(m: Message, state: FSMContext):
 async def mine_menu(q: CallbackQuery):
     await q.answer()
     await display(q.message, "⚙️ МОЁ, ВАЦОК\\n\\nТвои настройки и записи, брат. Всё по делу!", kb([
-        [("🔔 Напомни, брат", "v2:settings"), ("☑️ Моё слово", "check")],
-        [("📊 Мои расклады", "v2:stats"), ("🎯 Мемы по кайфу", "v2:memethemes")],
+        [("🔔 Напоминания", "v2:settings")],
         [("🗑 Удалить мои записи", "delete_ask")],
         [("⬅️ На базу", "v2:home")],
     ]))
