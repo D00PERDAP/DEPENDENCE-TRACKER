@@ -185,6 +185,26 @@ class TimerDeliveryTests(unittest.IsolatedAsyncioTestCase):
             next_at = datetime.fromisoformat(alert["next_at"])
             self.assertGreaterEqual(next_at, self.t + timedelta(minutes=9))
 
+    async def test_read_only_library_still_delivers_photo_reminder(self):
+        async def stop_sleep(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        with patch.object(bot.context_memes, "choose_photo", return_value=None):
+            with patch.object(photo_memes, "ensure_pack",
+                              side_effect=PermissionError("assets are read only")):
+                with patch.object(bot.asyncio, "sleep", side_effect=stop_sleep):
+                    with self.assertRaises(asyncio.CancelledError):
+                        await bot.reminder_loop(self.bot_api)
+        self.bot_api.send_photo.assert_awaited_once()
+        sent = self.bot_api.send_photo.await_args.args[1]
+        with Image.open(io.BytesIO(sent.data)) as image:
+            self.assertEqual(image.format, "JPEG")
+            self.assertEqual(image.size, (850, 850))
+        with bot.connect() as c:
+            alert = c.execute("SELECT next_at FROM alerts WHERE user_id=?",
+                              (self.uid,)).fetchone()
+            self.assertGreater(datetime.fromisoformat(alert[0]), self.t)
+
     async def test_failure_retries_in_one_minute_not_silently_in_ten(self):
         self.bot_api.send_photo.side_effect = RuntimeError("simulated telegram outage")
         await self._single_tick()
