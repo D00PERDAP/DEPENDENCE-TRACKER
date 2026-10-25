@@ -416,17 +416,20 @@ async def mellstroy_status_cmd(m: Message):
     if not is_meme_admin(m.from_user):
         return
     state = mellstroy_bank.status()
+    general = reaction_bank.status()
+    new_count = general["people"].get("Меллстрой", 0)
     tags = ", ".join(f"{k}: {v}" for k, v in state["moods"].items())
     await m.answer(
         f"📸 МЕЛЛСТРОЙ — БИБЛИОТЕКА\n\n"
-        f"Реальных кадров: {state['count']} / {state['target']}\n"
-        f"Недостаёт: {state['missing']}\n"
+        f"Кадры из старого архива: {state['count']}\n"
+        f"Новые кадры: {new_count}\n"
+        "Лимита на коллекцию нет.\n"
         f"Метки: {tags or 'пока нет'}\n\n"
         "Как наполнить:\n"
         "1. Скинь короткое видео с подписью /mellstroy_add YES shock "
         "(до 19 МБ, только материал с разрешением на использование).\n"
         "2. Или загрузите большие исходные видео на VPS и выполните:\n"
-        "python mellstroy_bank.py import /путь/к/видео --confirm-rights\n"
+        'python reaction_bank.py import /путь/к/видео --person "Меллстрой" --confirm-rights\n'
         "3. /mellstroy_preview — увидеть четыре исходника.\n"
         "Лицо не заменяется и не меняется."
     )
@@ -479,14 +482,14 @@ async def mellstroy_add_video(m: Message):
         path = Path(folder) / ("clip" + extension)
         try:
             await m.bot.download(file.file_id, destination=path)
-            result = await asyncio.to_thread(mellstroy_bank.import_media, path,
-                    target=600, mood=mood, confirm_rights=True,
-                    source_credit="Admin-confirmed uploaded stream clip")
+            result = await asyncio.to_thread(reaction_bank.import_media, path,
+                    person="Меллстрой", mood=mood, confirm_rights=True,
+                    credit="Admin-confirmed stream clip")
             await progress.edit_text(
                 f"✅ Добавлено: {result['added']} реальных кадров.\n"
-                f"В библиотеке: {result['total']}/600.\n"
-                f"Отклонено похожих/некачественных: {result['rejected']}.\n"
-                "Для просмотра: /mellstroy_preview")
+                f"Общая библиотека: {result['total']} (без лимита).\n"
+                f"Дубликатов: {result['duplicates']}, отсеяно: {result['rejected']}.\n"
+                "Для просмотра: /memes_preview")
         except Exception as exc:
             print(f"Mellstroy video import failed: {type(exc).__name__}: {exc}", flush=True)
             await progress.edit_text("❌ Не получилось разобрать видео. "
