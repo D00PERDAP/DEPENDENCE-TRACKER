@@ -6,6 +6,7 @@ notification is deleted on acknowledgement, but the awarded item is retained.
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,8 +31,14 @@ def connect():
         photo_id TEXT,
         created_at TEXT NOT NULL,
         acknowledged_at TEXT,
-        notice_message_id INTEGER
+        notice_message_id INTEGER,
+        latitude REAL,
+        longitude REAL
     )""")
+    columns = {r["name"] for r in c.execute("PRAGMA table_info(rewards)")}
+    for name in ("latitude", "longitude"):
+        if name not in columns:
+            c.execute(f"ALTER TABLE rewards ADD COLUMN {name} REAL")
     c.execute("CREATE INDEX IF NOT EXISTS idx_rewards_user ON rewards(user_id,id DESC)")
     c.commit()
     return c
@@ -44,15 +51,34 @@ def keyboard(rows):
     ])
 
 
-def grant(user_id, admin_id, title, photo_id=None):
+def parse_coordinates(text):
+    """Accept decimal GPS pairs; for example 55.751244, 37.618423."""
+    parts = re.split(r"[,;\\s]+", (text or "").strip())
+    if len(parts) != 2:
+        raise ValueError("Two coordinates required")
+    try:
+        lat, lon = map(float, parts)
+    except ValueError as exc:
+        raise ValueError("Invalid GPS numbers") from exc
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise ValueError("GPS out of bounds")
+    return lat, lon
+
+
+def grant(user_id, admin_id, title, photo_id=None, latitude=None, longitude=None):
     if not 1 <= len(title.strip()) <= 80:
         raise ValueError("Item name must be 1–80 characters")
+    if (latitude is None) != (longitude is None):
+        raise ValueError("Both GPS coordinates required")
+    if latitude is not None and not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        raise ValueError("Invalid GPS coordinates")
     with connect() as c:
         cur = c.execute(
-            "INSERT INTO rewards(user_id,admin_id,title,photo_id,created_at) "
-            "VALUES(?,?,?,?,?)",
+            "INSERT INTO rewards(user_id,admin_id,title,photo_id,created_at,latitude,longitude) "
+            "VALUES(?,?,?,?,?,?,?)",
             (user_id, admin_id, title.strip(), photo_id,
-             datetime.now(timezone.utc).isoformat(timespec="seconds")),
+             datetime.now(timezone.utc).isoformat(timespec="seconds"),
+             latitude, longitude),
         )
         return cur.lastrowid
 
@@ -68,6 +94,7 @@ def inventory(user_id):
 class RewardFlow(StatesGroup):
     title = State()
     optional_photo = State()
+    location = State()
 
 
 def install(dp, *, is_admin, user_exists, render_text):
