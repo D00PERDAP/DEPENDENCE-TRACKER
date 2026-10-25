@@ -209,8 +209,10 @@ def choose_photo(substance, risk, connect, uid, meme_key):
     if not valid:
         return None
     fresh = [p for p in valid if meme_key(p) not in recent]
-    # Prefer approved photos, but rotate among recently unseen candidates.
-    return random.choice(fresh or valid)
+    pool = fresh or valid
+    # Actual admin-approved or licensed photos beat illustrated offline fallbacks.
+    pictured = [p for p in pool if not p.name.startswith("illustrated_")]
+    return random.choice(pictured or pool)
 
 
 async def send(message, uid, substance, risk, connect, meme_key, record_meme, meme_buttons):
