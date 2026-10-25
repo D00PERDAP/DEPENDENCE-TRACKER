@@ -246,10 +246,68 @@ async def admin_panel(q: CallbackQuery):
     await display(q.message, f"🛠 АДМИНКА\\n\\nПользователей: {users}\\nАдминов: {admins}", kb([
         [("📁 Коллекции", "admin:collections")],
         [("📸 Добавить фото/видео", "admin:media")],
-        [("🔑 Сброс кодового слова", "admin:reset_pirate")],
+        [("👥 Пользователи", "admin:users:0")],
         [("🔄 Обновить", "admin:panel"), ("🚪 Выйти", "admin:logout")],
         [("🏠 Меню", "v2:home")],
     ]))
+
+
+@dp.callback_query(F.data.startswith("admin:users:"))
+async def admin_users(q: CallbackQuery):
+    if not is_meme_admin_id(q.from_user.id):
+        return await q.answer("Нет доступа", show_alert=True)
+    await q.answer()
+    page = max(0, int(q.data.rsplit(":", 1)[-1]))
+    with connect() as c:
+        total = c.execute("SELECT COUNT(*) FROM bot_user_profiles").fetchone()[0]
+        rows = c.execute("SELECT user_id, username, first_name FROM bot_user_profiles ORDER BY last_seen DESC LIMIT 10 OFFSET ?", (page*10,)).fetchall()
+    items = [[(f"👤 {(r['first_name'] or r['username'] or 'Пользователь')[:24]} · {r['user_id']}", f"admin:user:{r['user_id']}")] for r in rows]
+    nav = []
+    if page: nav.append(("⬅️", f"admin:users:{page-1}"))
+    if (page+1)*10 < total: nav.append(("➡️", f"admin:users:{page+1}"))
+    if nav: items.append(nav)
+    items.append([("🛠 Админка", "admin:panel")])
+    await display(q.message, f"👥 ПОЛЬЗОВАТЕЛИ · {total}\\nСтраница {page+1}", kb(items))
+
+
+@dp.callback_query(F.data.startswith("admin:user:"))
+async def admin_user_detail(q: CallbackQuery):
+    if not is_meme_admin_id(q.from_user.id):
+        return await q.answer("Нет доступа", show_alert=True)
+    await q.answer()
+    uid = int(q.data.rsplit(":", 1)[-1])
+    with connect() as c:
+        user = c.execute("SELECT user_id, username, first_name FROM bot_user_profiles WHERE user_id=?", (uid,)).fetchone()
+    if not user:
+        return await q.answer("Пользователь не найден", show_alert=True)
+    with pirate_quests.db() as c:
+        banned = c.execute("SELECT 1 FROM banned_players WHERE user_id=?", (uid,)).fetchone() is not None
+        treasures = c.execute("SELECT title FROM treasures WHERE user_id=? ORDER BY id DESC LIMIT 20", (uid,)).fetchall()
+        count = c.execute("SELECT COUNT(*) FROM treasures WHERE user_id=?", (uid,)).fetchone()[0]
+    titles = "\\n".join("• " + r["title"][:60] for r in treasures) or "Нет сокровищ"
+    name = user["first_name"] or user["username"] or "Пользователь"
+    await display(q.message, f"👤 {name}\\nID: {uid}\\nДоступ: {'🚫 заблокирован' if banned else '✅ открыт'}\\nСокровищ: {count}\\n\\n{titles}", kb([
+        [(("✅ Разблокировать" if banned else "🚫 Заблокировать"), f"admin:ban_user:{uid}")],
+        [("🔑 Сбросить кодовое слово", f"admin:pirate_pick:{uid}")],
+        [("⬅️ Пользователи", "admin:users:0")],
+    ]))
+
+
+@dp.callback_query(F.data.startswith("admin:ban_user:"))
+async def admin_ban_user(q: CallbackQuery):
+    if not is_meme_admin_id(q.from_user.id):
+        return await q.answer("Нет доступа", show_alert=True)
+    uid = int(q.data.rsplit(":", 1)[-1])
+    if uid == q.from_user.id or is_meme_admin_id(uid):
+        return await q.answer("Администратора блокировать нельзя", show_alert=True)
+    with pirate_quests.db() as c:
+        banned = c.execute("SELECT 1 FROM banned_players WHERE user_id=?", (uid,)).fetchone()
+        if banned:
+            c.execute("DELETE FROM banned_players WHERE user_id=?", (uid,))
+        else:
+            c.execute("INSERT OR IGNORE INTO banned_players(user_id) VALUES(?)", (uid,))
+    await q.answer("Разблокирован" if banned else "Заблокирован")
+    await admin_user_detail(q)
 
 
 @dp.callback_query(F.data.startswith("admin:reset_pirate"))
