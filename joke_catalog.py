@@ -147,6 +147,33 @@ def mark_sent(connect,user_id,joke_id,serial,meme_key=None):
                       (user_id,meme_key,joke_id))
 
 
+
+SCENE_TERMS = {
+    "phone": ("телефон", "чат", "звон", "голосов", "сим-карт",
+              "бывш", "мобильн", "переписк"),
+    "kitchen": ("кухн", "пельмен", "чайник", "гречк", "кабач",
+                "холодильник", "компот", "сметан", "кастрюл"),
+    "car": ("такси", "пилот", "дорог", "машин", "вокзал",
+            "путешеств", "маршрут", "навигатор"),
+    "microphone": ("микрофон", "голосов", "лекци", "диктор",
+                   "оратор", "говор", "вещан"),
+    "bed": ("подушк", "сон", "спать", "пижам", "матрас",
+            "одеял", "будильник"),
+    "desk": ("банк", "кошел", "банкнот", "карт", "бумаг",
+             "деньг", "зарплат", "квитанц"),
+    "group": ("друз", "сосед", "жильц", "комисс", "совет"),
+    "gaming": ("стрим", "видео", "экран", "игр", "галере"),
+}
+
+
+def scene_tags(text,risk="general"):
+    """Conservative lexical hints for PHOTO choice, never personal diagnoses."""
+    lowered=text.casefold()
+    found=[scene for scene,words in SCENE_TERMS.items()
+           if any(word in lowered for word in words)]
+    return tuple(found[:3])
+
+
 def count():
     return len(bank())
 
