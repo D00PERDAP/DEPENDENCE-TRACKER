@@ -824,6 +824,7 @@ async def delete_yes(q: CallbackQuery):
         c.execute("DELETE FROM meme_dynamic_counter WHERE user_id=?", (uid,))
         c.execute("DELETE FROM real_meme_sent WHERE user_id=?", (uid,))
         c.execute("DELETE FROM joke_sent WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM joke_delivery WHERE user_id=?", (uid,))
         v2_data.erase_user(c, uid)
     await q.answer("Удалено")
     await display(q.message, "История удалена из активной базы. Резервные копии на сервере удаляются отдельно.", kb([[("🏠 Меню", "home")]]))
