@@ -71,6 +71,27 @@ class TelegramMemePhotoTests(unittest.IsolatedAsyncioTestCase):
             msg.answer.assert_not_awaited()
             self.assertEqual(seen, [(42, picture)])
 
+    async def test_missing_stored_photo_retries_in_memory_not_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            picture = Path(tmp) / "gone.jpg"
+            # Bad/stale FSInputFile: first Telegram delivery raises, then the
+            # in-memory JPEG can be uploaded independently.
+            msg = type("FakeMessage", (), {
+                "answer_photo": AsyncMock(side_effect=[OSError("stale file"), None]),
+                "answer": AsyncMock(),
+            })()
+            with patch.object(context_memes, "choose_photo", return_value=picture):
+                result = await context_memes.send(
+                    msg, 42, "Мефедрон", "more",
+                    bot.connect, lambda _: "a" * 16,
+                    lambda uid, p: None,
+                    lambda p: None,
+                )
+            self.assertTrue(result)
+            self.assertEqual(msg.answer_photo.await_count, 2)
+            self.assertTrue(hasattr(msg.answer_photo.await_args.args[0], "data"))
+            msg.answer.assert_not_awaited()
+
     async def test_unwritable_asset_directory_still_sends_jpeg(self):
         msg = type("FakeMessage", (), {
             "answer_photo": AsyncMock(), "answer": AsyncMock()
