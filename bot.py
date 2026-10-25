@@ -15,6 +15,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile
 from dotenv import load_dotenv
 from meme_studio import ensure_catalog
+import context_memes
+import v2_data
+import v2_experience
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
@@ -24,11 +27,12 @@ PRESETS = [
     "Не ехать за приключениями", "Не тратить лишние деньги",
     "Не садиться за руль", "Не писать лишнего",
     "Не смешивать вещества", "Не оставаться одному, если плохо",
+    "Не покупать ещё", "Не выкладывать лишнего", "Не ехать к незнакомым людям",
 ]
 SUBSTANCES = ["Мефедрон", "Альфа-ПВП", "Амфетамин", "Метамфетамин",
               "Каннабис", "MDMA", "Кокаин", "Опиоиды",
               "Бензодиазепины", "ЛСД", "Псилоцибин", "Другое", "Не указывать"]
-INTERVALS = (15, 30, 60)
+INTERVALS = (10, 15, 30, 60)
 dp = Dispatcher()
 
 
@@ -74,6 +78,7 @@ def init():
           PRIMARY KEY(user_id, meme_key)
         );
         """)
+    v2_data.migrate(connect)
 
 
 def kb(rows):
@@ -110,14 +115,18 @@ async def display(message, text, markup):
 
 
 def home_buttons(running=False):
+    rows = [
+        [("🔥 Останови меня", "v2:impulses"), ("🆘 Мне плохо", "v2:safety")],
+        [("☑️ Мои запреты", "check"), ("🎭 Мем", "v2:meme")],
+        [("📊 Моя статистика", "v2:stats"), ("❓ Вопросы", "v2:faq")],
+        [("⚙️ Напоминания", "v2:settings")],
+    ]
     if running:
-        return kb([[("☑️ Мои запреты", "check")],
-                   [("🎭 Случайный мем", "mnext")],
-                   [("🫀 Как я?", "health"), ("⏹ Закончить", "finish")],
-                   [("📊 Статистика", "stats"), ("⚙️ Ещё", "more")]])
-    return kb([[("☑️ Я НЕ ХОЧУ", "check")],
-               [("🎭 Случайный мем", "mnext")],
-               [("📊 Статистика", "stats"), ("⚙️ Ещё", "more")]])
+        rows.insert(0, [("🔴 Сопровождение активно", "v2:settings"),
+                        ("⏹ Завершить", "v2:finish")])
+    else:
+        rows.insert(0, [("▶️ Начать сопровождение", "v2:start")])
+    return kb(rows)
 
 
 async def home(message, uid):
@@ -126,9 +135,9 @@ async def home(message, uid):
         ensure_preset(c, uid)
         count = len(picked(c, uid))
     if session:
-        text = f"💀 НЕ НАТВОРИ ДЕЛОВ\n\n🔴 Сопровождение включено.\nТвои запреты: {count}\n\nЕсли тебе плохо — нажми «Как я?»."
+        text = f"💀 НЕ НАТВОРИ ДЕЛОВ\n\n🔴 Сопровождение активно.\nТвоих запретов: {count}\n\nЕсли тебя несёт или плохо — есть быстрые кнопки."
     else:
-        text = "💀 НЕ НАТВОРИ ДЕЛОВ\n\nВыбери, чего НЕ хочешь натворить.\nПотом включи напоминания. Всё."
+        text = "💀 НЕ НАТВОРИ ДЕЛОВ\n\nНачни сопровождение, отметь свои запреты или просто проверь состояние.\nБез длинных анкет."
     await display(message, text, home_buttons(bool(session)))
 
 
@@ -530,6 +539,7 @@ async def delete_yes(q: CallbackQuery):
         c.execute("DELETE FROM users WHERE user_id=?", (uid,))
         c.execute("DELETE FROM meme_sends WHERE user_id=?", (uid,))
         c.execute("DELETE FROM meme_votes WHERE user_id=?", (uid,))
+        v2_data.erase_user(c, uid)
     await q.answer("Удалено")
     await display(q.message, "История удалена из активной базы. Резервные копии на сервере удаляются отдельно.", kb([[("🏠 Меню", "home")]]))
 
