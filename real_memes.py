@@ -422,8 +422,9 @@ def _prepare(connect, uid, substance, risk, allow_paid=False):
             "SELECT template_id FROM real_meme_sent WHERE user_id=?",
             (uid,)).fetchall()}
 
-    real = reaction_bank.templates(risk, seen=recent, limit=32,
-                                   desired_mood=joke["mood"])
+    real = reaction_bank.templates(
+        risk, seen=recent, limit=32, desired_mood=joke["mood"],
+        desired_scenes=joke_catalog.scene_tags(joke["text"],risk))
     if not real:
         real = mellstroy_bank.templates(risk, seen=recent, limit=32)
     using_real = bool(real)
