@@ -8,7 +8,7 @@ from collections import Counter
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, BaseMiddleware
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -34,6 +34,21 @@ SUBSTANCES = ["Мефедрон", "Альфа-ПВП", "Амфетамин", "М
               "Бензодиазепины", "ЛСД", "Псилоцибин", "Другое", "Не указывать"]
 INTERVALS = (10, 15, 30, 60)
 dp = Dispatcher()
+
+
+class PrivateChatOnly(BaseMiddleware):
+    """Do not expose health/substance data in Telegram groups or channels."""
+    async def __call__(self, handler, event, data):
+        chat = getattr(event, "chat", None)
+        if chat is None:
+            chat = getattr(getattr(event, "message", None), "chat", None)
+        if chat is not None and str(chat.type) != "private":
+            return None
+        return await handler(event, data)
+
+
+dp.message.outer_middleware(PrivateChatOnly())
+dp.callback_query.outer_middleware(PrivateChatOnly())
 
 
 class Form(StatesGroup):
@@ -534,7 +549,7 @@ async def stats(q: CallbackQuery):
 @dp.callback_query(F.data == "more")
 async def more(q: CallbackQuery):
     await q.answer()
-    await display(q.message, "⚙️ ЕЩЁ\n\nТвои записи видны только в этом чате. Удаление из базы не удаляет резервные копии сервера.", kb([
+    await display(q.message, "⚙️ ЕЩЁ\n\nБот хранит твои отметки на сервере. Вход в бота — только через личный чат. Удаление из базы не удаляет резервные копии сервера.", kb([
         [("🛟 Безопасность", "safety")],
         [("🗑 Удалить мои данные", "delete_ask")],
         [("🏠 Меню", "home")]
