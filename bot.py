@@ -27,6 +27,7 @@ import admin_center
 import joke_catalog
 import v2_data
 import v2_experience
+import ui_manager
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
@@ -146,14 +147,7 @@ def picked(c, uid):
 
 
 async def display(message, text, markup):
-    try:
-        if message.text is not None:
-            await message.edit_text(text, reply_markup=markup)
-            return
-        await message.delete()
-    except Exception:
-        pass
-    await message.answer(text, reply_markup=markup)
+    return await ui_manager.render_text(message, text, markup)
 
 
 def home_buttons(running=False, admin=False):
@@ -540,29 +534,9 @@ async def home(message, uid):
         )
     markup = home_buttons(bool(session), is_meme_admin_id(uid))
     intro = Path(__file__).resolve().parent / "assets" / "maga_menu_photo.jpg"
-    if not intro.is_file():
-        return await display(message, text, markup)
-
-    try:
-        if message.animation or message.photo or message.video:
-            await message.edit_media(
-                InputMediaPhoto(media=FSInputFile(intro), caption=text),
-                reply_markup=markup,
-            )
-        else:
-            # Telegram cannot edit a text message into an animation.
-            # Delete the previous bot screen when possible.
-            if message.from_user and message.from_user.is_bot:
-                try:
-                    await message.delete()
-                except Exception:
-                    pass
-            await message.answer_photo(
-                photo=FSInputFile(intro), caption=text, reply_markup=markup
-            )
-    except Exception as exc:
-        print(f"Maga menu animation fallback: {type(exc).__name__}: {exc}", flush=True)
-        await display(message, text, markup)
+    if intro.is_file():
+        return await ui_manager.render_photo(message, intro, text, markup)
+    return await display(message, text, markup)
 
 
 def meme_key(path):
@@ -1445,6 +1419,7 @@ v2_experience.install(
     kb=kb, display=display, now=utcnow, stamp=iso,
     meme_key=meme_key, record_meme=record_meme, meme_buttons=meme_buttons,
     is_admin=is_meme_admin_id, home_screen=home,
+    show_photo=ui_manager.render_photo,
 )
 
 
