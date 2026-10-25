@@ -252,7 +252,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             text = ("💀 НЕ НАТВОРИ ДЕЛОВ\n\n"
                     f"{'🔴 Сопровождение активно' if session else '⚪ Сессия не начата'}\n"
                     f"Твоих запретов: {count}\n"
-                    f"Напоминания: {'⏸ тишина' if settings['quiet'] else str(settings['base_interval']) + ' минут'}\n\n"
+                    f"Напоминания: {'не включены' if not session else '⏸ тишина' if settings['quiet'] else str(settings['base_interval']) + ' минут'}\n\n"
                     "Что нужно прямо сейчас?")
             await panel(q, text, [
                 [("▶️ Начать / настроить", "v2:start"), ("☑️ Мои запреты", "check")],
