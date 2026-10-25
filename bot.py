@@ -510,20 +510,24 @@ def month_data(c, uid):
 
 @dp.callback_query(F.data == "stats")
 async def stats(q: CallbackQuery):
-    with connect() as c:
-        rows, weeks, substances, durations = month_data(c, q.from_user.id)
-    month = utcnow().strftime("%m.%Y")
-    bars = "\n".join(f"{i+1} нед.  {'█'*n or '·'}  {n}" for i, n in enumerate(weeks))
-    names = "\n".join(f"• {name}: {num}" for name, num in substances.most_common())
-    duration = f"Средняя длительность записи: {sum(durations)/len(durations):.1f} ч\n" if durations else ""
-    txt = (f"📊 СТАТИСТИКА · {month} (UTC)\n\n"
-           f"Записей о сессиях: {len(rows)}\n"
-           f"{duration}\n"
-           f"{bars}\n\n"
-           f"Что указано:\n{names or 'Пока пусто.'}\n\n"
-           "Статистика основана только на собственных отметках, а не на реальном измерении употребления.")
+    """Legacy button compatibility: show the new image instead of ASCII bars."""
     await q.answer()
-    await display(q.message, txt, kb([[("🏠 Меню", "home")], [("🗑 Мои данные", "delete_ask")]]))
+    with connect() as c:
+        summary = v2_data.monthly_summary(c, q.from_user.id)
+    try:
+        from stats_dashboard import make_dashboard, summary_caption
+        image = await asyncio.to_thread(make_dashboard, summary)
+        await q.message.answer_photo(
+            BufferedInputFile(image, filename="private-stats.jpg"),
+            caption=summary_caption(summary),
+            reply_markup=kb([
+                [("📊 Обновить", "v2:stats"), ("🏠 Меню", "v2:home")],
+                [("🗑 Удалить мои данные", "delete_ask")],
+            ]),
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        print(f"Legacy stats image failed: {type(exc).__name__}")
+        await q.message.answer(summary_caption(summary))
 
 
 @dp.callback_query(F.data == "more")
