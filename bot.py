@@ -245,7 +245,7 @@ async def admin_panel(q: CallbackQuery):
     with connect() as c:
         users = c.execute("SELECT COUNT(*) FROM bot_user_profiles").fetchone()[0]
         admins = c.execute("SELECT COUNT(*) FROM bot_admins").fetchone()[0]
-    await display(q.message, f"🛠 АДМИНКА\\n\\nПользователей: {users}\\nАдминов: {admins}", kb([
+    await display(q.message, f"🛠 ШТАБ МАГИ\\n\\nПользователей: {users}\\nАдминов: {admins}", kb([
         [("📁 Мемные сокровища", "admin:collections")],
         [("📸 Закинуть мем", "admin:media")],
         [("👥 Наши вацоки", "admin:users:0")],
@@ -373,7 +373,7 @@ async def admin_logout(q: CallbackQuery):
     await q.answer()
     with connect() as c:
         c.execute("DELETE FROM bot_admins WHERE user_id=?", (q.from_user.id,))
-    await display(q.message, "Выход из админки.", kb([[("🏠 На базу", "v2:home")]]))
+    await display(q.message, "Всё, брат, из штаба вышли.", kb([[("🏠 На базу", "v2:home")]]))
 
 
 def admin_people():
@@ -410,7 +410,7 @@ async def admin_collections(q: CallbackQuery):
              f"📸 vjlink — {people.get('vjlink', 0)}"]
     lines += [f"📁 {name} — {people.get(name, 0)}" for name in
               admin_people() if name not in ("Меллстрой", "vjlink")]
-    await display(q.message, "📁 КОЛЛЕКЦИИ\\n\\n" + "\\n".join(lines), kb([
+    await display(q.message, "😂 МЕМНЫЙ СКЛАД МАГИ\\n\\n" + "\\n".join(lines), kb([
         [("➕ Добавить фото", "admin:media")],
         [("➕ Новый персонаж", "admin:newperson")],
         [("⬅️ Админка", "admin:panel")],
@@ -423,7 +423,7 @@ async def admin_new_person(q: CallbackQuery, state: FSMContext):
     if not is_meme_admin_id(q.from_user.id):
         return
     await state.set_state(AdminAuth.new_person)
-    await display(q.message, "➕ НОВЫЙ ПЕРСОНАЖ\\n\\nОтправь имя (до 40 символов).", kb([
+    await display(q.message, "➕ НОВЫЙ ГЕРОЙ, БРАТ\\n\\nОтправь имя (до 40 символов).", kb([
         [("⬅️ Коллекции", "admin:collections")],
     ]))
 
@@ -456,7 +456,7 @@ async def admin_media_prompt(q: CallbackQuery, state: FSMContext):
     rows = [[(name, "admin:person:" + str(i))] for i, name in enumerate(names)]
     rows += [[("➕ Новый персонаж", "admin:newperson")],
              [("⬅️ Админка", "admin:panel")]]
-    await display(q.message, "📸 КОМУ ДОБАВИТЬ ФОТО?\\n\\nВыбери персонажа.", kb(rows))
+    await display(q.message, "📸 КОМУ ПОДКИНЕМ МЕМ, ВАЦОК?\\n\\nВыбери персонажа.", kb(rows))
 
 
 @dp.callback_query(F.data.startswith("admin:person:"))
@@ -1053,7 +1053,7 @@ async def save_custom(m: Message, state: FSMContext):
     with connect() as c:
         c.execute("INSERT INTO checklist(user_id,title,selected) VALUES(?,?,1)", (m.from_user.id, m.text.strip()))
     await state.clear()
-    await m.answer("✅ Добавлено.", reply_markup=kb([[("☑️ К моим правилам", "check")]]))
+    await m.answer("🤝 Готово, вацок!", reply_markup=kb([[("☑️ К моим правилам", "check")]]))
 
 
 @dp.callback_query(F.data == "substance")
@@ -1065,7 +1065,7 @@ async def substance(q: CallbackQuery):
     if session:
         return await home(q.message, q.from_user.id)
     if not selected:
-        return await display(q.message, "Отметь хотя бы один пункт.", kb([[("☑️ К списку", "check")]]))
+        return await display(q.message, "Э, брат, выбери хотя бы одно правило.", kb([[("☑️ К моим правилам", "check")]]))
     rows = [[(name, f"sub:{i}")] for i, name in enumerate(SUBSTANCES)]
     rows.append([("⬅️ Обратно, брат", "check")])
     await display(q.message, "Что употребляешь или планируешь?\nМожно не указывать. Здесь нет дозировок и рекомендаций по употреблению.", kb(rows))
