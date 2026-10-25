@@ -80,7 +80,7 @@ class StoryLinks(HTMLParser):
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
         href = attrs.get("href", "")
-        if tag == "a" and re.search(r"^(?:https://pikabu\\.ru)?/story/[\\w%-]+_\\d+(?:[/?#]|$)", href):
+        if tag == "a" and re.search(r"^(?:https://pikabu\.ru)?/story/[\w%-]+_\d+(?:[/?#]|$)", href):
             self.current = [urljoin("https://pikabu.ru", href).split("?")[0].split("#")[0], ""]
             self.matches += 1
 
