@@ -35,7 +35,7 @@ def make_dashboard(summary):
     picture = Image.new("RGB", (W, H), BG)
     draw = ImageDraw.Draw(picture)
     draw.rectangle((0, 0, W, 13), fill=RED)
-    t(draw, (65, 54), "НЕ НАТВОРИ ДЕЛОВ", 53)
+    t(draw, (65, 54), "РАСКЛАДЫ ОТ МАГИ", 53)
     t(draw, (65, 126), f"ТВОИ РАСКЛАДЫ  •  {summary['month']}  •  UTC", 28, MUTED)
     data = [
         (summary["episodes"], "Запусков сопровождения", RED),
@@ -56,7 +56,7 @@ def make_dashboard(summary):
             t(draw, (left + 21, 316), label, 22, MUTED)
 
     card(draw, (65, 403, 1034, 771))
-    t(draw, (93, 428), "КАК ПРОШЁЛ МЕСЯЦ", 34)
+    t(draw, (93, 428), "ХРОНИКА СУЕТЫ, ВАЦОК", 34)
     t(draw, (94, 478), "Сколько раз включал сопровождение по дням", 21, MUTED)
     counts = summary["days"]
     maximum = max(1, max(counts, default=0))
@@ -77,11 +77,11 @@ def make_dashboard(summary):
             t(draw, (xx + 2, 711), str(index + 1), 20, MUTED)
 
     card(draw, (65, 797, 1034, 1099))
-    t(draw, (93, 823), "ЧТО ТЫ УКАЗЫВАЛ", 32)
+    t(draw, (93, 823), "ДЕЛО В ПАПКЕ: ОТМЕТКИ", 32)
     t(draw, (93, 867), "Твои отметки по веществам • не оценка доз", 20, MUTED)
     top_substances = summary["substances"].most_common(4)
     if not top_substances:
-        t(draw, (95, 949), "Пока нет записей за этот месяц", 30, MUTED)
+        t(draw, (95, 949), "Тут пока тишина, жи есть!", 30, MUTED)
     else:
         total = sum(summary["substances"].values()) or 1
         for index, (label, count) in enumerate(top_substances):
@@ -95,10 +95,10 @@ def make_dashboard(summary):
             t(draw, (967, y - 2), count, 25, AMBER, anchor="ra")
 
     card(draw, (65, 1123, 1034, 1343))
-    t(draw, (93, 1152), "КАКИЕ БЫЛИ ПОЗЫВЫ", 30)
+    t(draw, (93, 1152), "ОПЕРСВОДКА: ПОРЫВЫ", 30)
     risks = summary["risks"].most_common(3)
     if not risks:
-        t(draw, (95, 1236), "Пока нет отметок о рискованных желаниях", 24, MUTED)
+        t(draw, (95, 1236), "По этой части тишина, брат", 24, MUTED)
     else:
         mx = max(1, risks[0][1])
         for idx, (key, count) in enumerate(risks):
@@ -122,7 +122,7 @@ def summary_caption(summary):
     checkins = summary["checkins"]
     resolved = summary["resolved"]
     lines = [
-        f"🦅 Э, вацок, вот твои расклады за {month}!",
+        f"🦅 Мага поднял твоё дело за {month}!",
         f"💀 {episodes} — столько раз ты включал сопровождение.",
         f"🫀 {checkins} — столько раз отмечал своё самочувствие.",
         f"🛡 {resolved} — столько рискованных порывов отметил как пережданные.",
@@ -134,6 +134,6 @@ def summary_caption(summary):
     if risk:
         lines.append(f"⚡ Чаще отмечал желание: {RISK_LABELS.get(risk[0][0], risk[0][0]).lower()}.")
     if not episodes and not summary["event_count"]:
-        lines.append("Пока пустовато, брат. Делай отметки — появятся графики.")
+        lines.append("В деле пока пусто, брат. Появятся отметки — будут расклады.")
     lines.append("Жи есть, это только твои записи, не подсчёт фактического употребления и не медицинский диагноз.")
     return "\n".join(lines)
