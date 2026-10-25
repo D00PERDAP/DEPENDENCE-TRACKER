@@ -260,13 +260,66 @@ def install(dp, *, is_admin, user_exists, render_text):
     async def my_rewards(q):
         await q.answer()
         rows = inventory(q.from_user.id)
-        text = ("🎁 МАГА | МОИ СОКРОВИЩА\n\n"
-                + ("\n".join(f"• {r['title']}" for r in rows)
-                   if rows else "Пока пусто, вацок."))
-        await render_text(q.message,text,keyboard([
+        buttons = [[(f"🗺️ {r['title'][:38]}", f"rw:view:{r['id']}")] for r in rows]
+        buttons += [
             [("⚙️ Настройки", "ui:mine")],
             [("🏠 На базу", "v2:home")],
-        ]))
+        ]
+        await render_text(
+            q.message,
+            "🏴‍☠️ МАГА | МОИ КЛАДЫ\n\n"
+            + (f"На счету {len(rows)} игровых тайников, вацок.\n"
+               "Жми на нужный — там корды и фотка."
+               if rows else "Пока пусто, брат. Ждём игровой квест!"),
+            keyboard(buttons),
+        )
+
+    @dp.callback_query(F.data.startswith("rw:view:"))
+    async def view_reward(q):
+        rid = int(q.data.rsplit(":", 1)[-1])
+        with connect() as c:
+            reward = c.execute(
+                "SELECT * FROM rewards WHERE id=? AND user_id=?",
+                (rid, q.from_user.id),
+            ).fetchone()
+        if not reward:
+            return await q.answer("Это не твой клад, вацок.", show_alert=True)
+        await q.answer()
+        coords = (
+            f"📍 Твои корды, вацок: "
+            f"{reward['latitude']:.7f}, {reward['longitude']:.7f}"
+            if reward["latitude"] is not None else
+            "📍 Корды ещё не заданы."
+        )
+        rows = []
+        if reward["photo_id"]:
+            rows.append([("📸 Твоя фотка, брат", f"rw:photo:{rid}")])
+        rows.append([("⬅️ К моим кладам", "rw:mine")])
+        await render_text(
+            q.message,
+            f"🏴‍☠️ МАГА | {reward['title']}\n\n"
+            f"{coords}\n\n"
+            + ("📸 Фотка есть, жми ниже."
+               if reward["photo_id"] else "📸 Без фотки, брат."),
+            keyboard(rows),
+        )
+
+    @dp.callback_query(F.data.startswith("rw:photo:"))
+    async def reward_photo(q):
+        rid = int(q.data.rsplit(":", 1)[-1])
+        with connect() as c:
+            reward = c.execute(
+                "SELECT * FROM rewards WHERE id=? AND user_id=?",
+                (rid, q.from_user.id),
+            ).fetchone()
+        if not reward or not reward["photo_id"]:
+            return await q.answer("Фотка не найдена, брат.", show_alert=True)
+        await q.answer()
+        await q.message.answer_photo(
+            reward["photo_id"],
+            caption=f"📸 Твоя фотка, вацок!\n🏴‍☠️ {reward['title']}",
+            reply_markup=keyboard([[("⬅️ К кладу", f"rw:view:{rid}")]]),
+        )
 
     @dp.message(F.text == "/cancelreward")
     async def cancel_reward(m, state):
