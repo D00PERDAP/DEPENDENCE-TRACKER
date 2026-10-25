@@ -24,30 +24,8 @@ LINES = {
 }
 
 def _ai_line(event):
-    key = os.getenv("GROQ_API_KEY")
-    if not key:
-        return None
-    model = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
-    prompt = (
-        "Придумай ОДНУ короткую русскую подпись до 85 символов для пародийного мема "
-        "с российским политиком. Тема: " + event +
-        ". Стиль: абсурдный государственный указ, добрый сарказм. "
-        "Цель — снижение вреда, не поощрять употребление, не давать дозировок, "
-        "не изображать выдуманные фразы как реальные цитаты. "
-        "Не упоминай конкретного человека или его якобы настоящие слова. "
-        "Ответ только подпись, без кавычек."
-    )
-    payload = json.dumps({"model": model, "temperature": 0.9, "max_tokens": 100,
-                          "messages": [{"role": "user", "content": prompt}]}).encode()
-    req = urllib.request.Request("https://api.groq.com/openai/v1/chat/completions",
-        data=payload, headers={"Authorization": "Bearer " + key, "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=8) as res:
-            line = json.load(res)["choices"][0]["message"]["content"].strip()
-        line = re.sub(r"[\\r\\n]+", " ", line).strip(" \"'«»")
-        return line[:85] if len(line) >= 8 else None
-    except Exception:
-        return None
+    return None
+
 
 def _font(size):
     return ImageFont.truetype(FONT, size)
@@ -128,6 +106,17 @@ def _photo(event):
     return random.choice(cached) if cached else None
 
 def render(event="random"):
+    pack = ROOT / "assets" / "contextual_meme_pack"
+    options = sorted(pack.glob(event + "_*.jpg"))
+    if options:
+        previous = getattr(render, "_previous", None)
+        choices = [p for p in options if p != previous] or options
+        chosen = random.choice(choices)
+        render._previous = chosen
+        with Image.open(chosen) as source:
+            out = BytesIO()
+            source.convert("RGB").save(out, "PNG")
+            return out.getvalue()
     event = event if event in LINES else "random"
     caption = _ai_line(event) or random.choice(LINES[event])
     size = (960, 960)
