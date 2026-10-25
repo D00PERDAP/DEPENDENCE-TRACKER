@@ -18,7 +18,7 @@ def backup(source=DB, directory=BACKUPS):
         print("No database yet; no backup needed.")
         return None
     directory.mkdir(parents=True, exist_ok=True)
-    target = directory / ("tracker-before-v2-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + ".db")
+    target = directory / ("tracker-before-v2-" + datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f") + ".db")
     fd = os.open(target, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     os.close(fd)
     try:
