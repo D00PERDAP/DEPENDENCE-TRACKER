@@ -54,9 +54,8 @@ PHOTO_NAMES = {
     "one does not simply", "laughing leo", "waiting skeleton",
     "disappointed black guy", "scared cat", "confused nick young",
     "surprised shaq", "awkward look monkey puppet", "confused math lady",
-    "side eyeing chloe", "sweating jordan peele", "is this a pigeon",
-    "pablo escobar waiting", "leonardo dicaprio laughing",
-    "shocked pikachu", "unsettled tom",  # less preferred, available for range
+    "sweating jordan peele", "pablo escobar waiting",
+    "leonardo dicaprio laughing"
 }
 # Some public templates are photographs of minors. Exclude them by default.
 MINORS = {"bad luck brian", "third world skeptical kid", "side eyeing chloe"}
@@ -65,6 +64,7 @@ MINORS = {"bad luck brian", "third world skeptical kid", "side eyeing chloe"}
 # No more random half-coherent word assembly or generated Russian in images.
 LINES = {
     "more": [
+        ("КОГДА МОЗГ ГОВОРИТ «ПОШАЛИМ?»", "ВСПОМНИ, ЧЕМ КОНЧИЛОСЬ ВЧЕРА"),
         ("Я: ВСЁ, НА СЕГОДНЯ ХВАТИТ", "МОЗГ ЧЕРЕЗ 5 МИНУТ: ПОШАЛИМ?"),
         ("КОГДА ДАЛ СЕБЕ СЛОВО", "А МОЗГ УЖЕ НАПИСАЛ СЦЕНАРИЙ"),
         ("НА НОЧЬ БЫЛ ТОЛЬКО ОДИН ПЛАН", "НЕ ПРИДУМЫВАТЬ ПЛАНОВ"),
@@ -76,6 +76,7 @@ LINES = {
         ("ДАВАЙ ЕЩЁ", "НЕТ, СПАСИБО, Я ЕЩЁ ПРОШЛЫЙ РАЗ ПОМНЮ"),
     ],
     "ex": [
+        ("НАПИСАТЬ БЫВШЕЙ В 04:00?", "ОХУЕННАЯ ИДЕЯ. НЕТ."),
         ("КОГДА ЗАХОТЕЛОСЬ НАПИСАТЬ БЫВШЕЙ", "ТЕЛЕФОН: ПОЩАДИ МЕНЯ"),
         ("Я В 04:12: ПРОСТО УЗНАЮ, КАК ОНА", "СУД ПРИГОВОРИЛ: ЛЕЧЬ СПАТЬ"),
         ("ДИАЛОГ С БЫВШЕЙ В ТРИ НОЧИ", "ЛУЧШЕ БЫ Я ПОГОДУ ПОСМОТРЕЛ"),
@@ -94,6 +95,7 @@ LINES = {
         ("Я: ЭТО ВАЖНЫЙ РАЗГОВОР", "ВРЕМЯ: 04:41. НЕТ, НЕ ВАЖНЫЙ"),
     ],
     "money": [
+        ("ПОШАЛИМ?", "СНАЧАЛА ПОСМОТРИМ НА БАЛАНС"),
         ("КОГДА ЗАГЛЯНУЛ В ПРИЛОЖЕНИЕ БАНКА", "А ТАМ ФИЛЬМ УЖАСОВ"),
         ("Я: В ЭТОМ МЕСЯЦЕ ЭКОНОМЛЮ", "ТАКЖЕ Я: ПОШАЛИМ?"),
         ("КОШЕЛЁК ПРОСИЛ ТИШИНЫ", "НОЧНОЙ Я ПРОСИЛ ПРИКЛЮЧЕНИЙ"),
@@ -123,6 +125,9 @@ LINES = {
         ("КОГДА ВСЁ КАЖЕТСЯ ПОДОЗРИТЕЛЬНЫМ", "ОТЛОЖИ РЕШЕНИЯ И ПОПРОСИ ПОМОЩЬ"),
     ],
     "general": [
+        ("НУ ЧТО, ПОШАЛИМ?", "А МОЖЕТ, СЕГОДНЯ БЕЗ ХЕРНИ?"),
+        ("КОГДА В ГОЛОВЕ СЛИШКОМ МНОГО ПЛАНОВ", "И ВСЕ КАКОЙ-ТО ПИЗДЕЦ"),
+        ("Я: НИЧЕГО НЕ БУДЕТ", "БЛЯТЬ, НУ ПОЧЕМУ ОПЯТЬ СЮЖЕТ"),
         ("КОГДА СКАЗАЛ «Я НА ПЯТЬ МИНУТ»", "И НАЧАЛСЯ ТРЕТИЙ СЕЗОН"),
         ("Я: ВСЁ ПОД КОНТРОЛЕМ", "КОНТРОЛЬ: МЕНЯ ТУТ ВООБЩЕ НЕТ"),
         ("НОЧНОЙ Я: ЛЕГЕНДА", "УТРЕННИЙ Я: СВИДЕТЕЛЬ"),
@@ -463,7 +468,8 @@ def _keyboard(key):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="😂 Зашло",callback_data=f"mv:1:{key}"),
          InlineKeyboardButton(text="🥱 Не смешно",callback_data=f"mv:-1:{key}")],
-        [InlineKeyboardButton(text="🎲 Ещё мем",callback_data="mnext")],
+        [InlineKeyboardButton(text="🎲 Ещё мем",callback_data="mnext"),
+         InlineKeyboardButton(text="🎯 Темы",callback_data="v2:memethemes")],
     ])
 
 def _record(connect,uid,serial,source,photo,text):
@@ -481,15 +487,23 @@ def _record(connect,uid,serial,source,photo,text):
     return key
 
 async def send(message,uid,substance,risk,connect,*args,**kwargs):
-    """Only send photo memes. Telegram exceptions bubble up for proper logging."""
-    serial,source,payload=await asyncio.to_thread(_prepare,connect,uid,substance,
-                                                   risk,True)
-    key=hashlib.sha256(f"{uid}:{serial}:{source}".encode()).hexdigest()[:16]
-    await message.answer_photo(BufferedInputFile(payload,filename=f"meme-{serial}.jpg"),
-                               caption="🎭 Старый добрый мем",
-                               reply_markup=_keyboard(key))
-    _record(connect,uid,serial,source,payload,str(risk))
-    return True
+    """Only send genuine photo memes or show a short actionable source error."""
+    try:
+        serial,source,payload=await asyncio.to_thread(_prepare,connect,uid,substance,
+                                                       risk,True)
+        key=hashlib.sha256(f"{uid}:{serial}:{source}".encode()).hexdigest()[:16]
+        await message.answer_photo(BufferedInputFile(payload,filename=f"meme-{serial}.jpg"),
+                                   caption="🎭 Старый добрый мем",
+                                   reply_markup=_keyboard(key))
+        _record(connect,uid,serial,source,payload,str(risk))
+        return True
+    except Exception as exc:
+        print(f"Photomeme delivery failed: {type(exc).__name__}: {exc}",flush=True)
+        await message.answer("😕 Не удалось загрузить фотомем. Проверь интернет на сервере "
+                             "или добавь проверенные фотографии через /addmeme. "
+                             "Пока не буду подменять их странными мультяшками.")
+        return False
+
 
 async def send_bot(bot,uid,substance,risk,connect,caption,reply_markup):
     # Never incur paid AI image charges for an automatic 10-minute reminder.
