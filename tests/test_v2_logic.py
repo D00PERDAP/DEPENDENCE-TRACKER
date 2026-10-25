@@ -76,6 +76,10 @@ class V2DataTests(unittest.TestCase):
         claimed = db.claim_due_followups(bot.connect, self.at + timedelta(minutes=11))
         self.assertEqual(len(claimed), 2)
         self.assertEqual(db.claim_due_followups(bot.connect, self.at + timedelta(minutes=11)), [])
+        with bot.connect() as c:
+            db.schedule_followup(c, 42, "after", 480, self.at)
+        self.assertEqual(db.claim_due_followups(bot.connect, self.at + timedelta(hours=7)), [])
+        self.assertEqual(len(db.claim_due_followups(bot.connect, self.at + timedelta(hours=9))), 1)
 
     def test_monthly_graph_data_and_user_erasure(self):
         with bot.connect() as c:
