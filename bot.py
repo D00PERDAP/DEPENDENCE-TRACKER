@@ -23,6 +23,7 @@ import real_memes
 import mellstroy_bank
 import reaction_bank
 import pirate_quests
+import admin_center
 import joke_catalog
 import v2_data
 import v2_experience
@@ -247,6 +248,7 @@ async def admin_panel(q: CallbackQuery):
         [("📁 Коллекции", "admin:collections")],
         [("📸 Добавить фото/видео", "admin:media")],
         [("👥 Пользователи", "admin:users:0")],
+        [("🛠 Центр управления", "ac:menu")],
         [("🔄 Обновить", "admin:panel"), ("🚪 Выйти", "admin:logout")],
         [("🏠 Меню", "v2:home")],
     ]))
@@ -1407,6 +1409,7 @@ async def originals_loop():
 
 
 pirate_quests.install(dp)
+admin_center.install(dp, connect, is_meme_admin_id, pirate_quests)
 
 v2_experience.install(
     dp, connect=connect, active=active, picked=picked, ensure_preset=ensure_preset,
