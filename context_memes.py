@@ -229,19 +229,23 @@ async def send(message, uid, substance, risk, connect, meme_key, record_meme, me
             print(f"Cannot create disk picture library: {type(exc).__name__}: {exc}", flush=True)
     try:
         if path is not None:
-            await message.answer_photo(
-                FSInputFile(path), caption="🎭 Мем • не натвори делов",
-                reply_markup=meme_buttons(path),
-            )
-            record_meme(uid, path)
-        else:
-            # No persistent album available? Render the actual picture in memory,
-            # not a fake "text meme".
-            data = await asyncio.to_thread(inline_picture, substance, risk)
-            await message.answer_photo(
-                BufferedInputFile(data, filename="meme.jpg"),
-                caption="🎭 Мем • не натвори делов",
-            )
+            try:
+                await message.answer_photo(
+                    FSInputFile(path), caption="🎭 Мем • не натвори делов",
+                    reply_markup=meme_buttons(path),
+                )
+                record_meme(uid, path)
+                return True
+            except Exception as file_exc:
+                print(f"Stored meme JPEG send failed: "
+                      f"{type(file_exc).__name__}: {file_exc}", flush=True)
+                # File may have been removed/corrupted since selection.
+                # Fall through to self-contained memory JPEG.
+        data = await asyncio.to_thread(inline_picture, substance, risk)
+        await message.answer_photo(
+            BufferedInputFile(data, filename="meme.jpg"),
+            caption="🎭 Мем • не натвори делов",
+        )
         return True
     except Exception as exc:
         print(f"Picture meme delivery failed: {type(exc).__name__}: {exc}", flush=True)
