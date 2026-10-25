@@ -103,9 +103,9 @@ def resolve_recent(c, uid, when=None):
 
 
 def schedule_followup(c, uid, kind, minutes=10, now=None):
-    if kind not in ("urge", "wellbeing"):
+    if kind not in ("urge", "wellbeing", "after"):
         raise ValueError("Invalid follow-up kind")
-    if minutes not in (10, 15):
+    if (kind == "after" and minutes != 480) or (kind != "after" and minutes not in (10, 15)):
         raise ValueError("Unsupported follow-up delay")
     due = stamp((now or now_utc()) + timedelta(minutes=minutes))
     c.execute("""INSERT INTO v2_followups(user_id,kind,due_at) VALUES(?,?,?)
