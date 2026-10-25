@@ -26,6 +26,8 @@ VOICE_PITCH = "-10Hz"
 
 
 VOICE_DB = Path(__file__).resolve().parent / "data" / "maga_voice_settings.sqlite3"
+SPEED_CHOICES = {"slow": ("🐢 Медленно · 0.80x", "0.80"), "relaxed": ("😎 Спокойно · 0.90x", "0.90"), "normal": ("⚡ Обычно · 1.00x", "1.00")}
+
 VOICE_CHOICES = {
     "edge": ("🎙 Дмитрий · обычный", None),
     "gamat": ("🦅 Гамат · Silero", "ru_gamat"),
@@ -40,8 +42,33 @@ def voice_db():
         "CREATE TABLE IF NOT EXISTS profiles "
         "(admin_id INTEGER PRIMARY KEY, voice TEXT NOT NULL)"
     )
+    columns = {r[1] for r in c.execute("PRAGMA table_info(profiles)")}
+    if "speed" not in columns:
+        c.execute("ALTER TABLE profiles ADD COLUMN speed TEXT NOT NULL DEFAULT 'normal'")
     c.commit()
     return c
+
+
+def get_speed(admin_id):
+    with voice_db() as c:
+        row = c.execute("SELECT speed FROM profiles WHERE admin_id=?", (admin_id,)).fetchone()
+    val = row[0] if row else "normal"
+    return val if val in SPEED_CHOICES else "normal"
+
+
+def set_speed(admin_id, speed):
+    if speed not in SPEED_CHOICES:
+        raise ValueError("Неизвестная скорость")
+    with voice_db() as c:
+        c.execute("INSERT INTO profiles(admin_id,voice,speed) VALUES(?,?,?) "
+                  "ON CONFLICT(admin_id) DO UPDATE SET speed=excluded.speed",
+                  (admin_id, "edge", speed))
+
+
+def speed_filter(speed):
+    if speed not in SPEED_CHOICES:
+        raise ValueError("Неизвестная скорость")
+    return "atempo=" + SPEED_CHOICES[speed][1]
 
 
 def get_voice(admin_id):
@@ -64,7 +91,7 @@ def set_voice(admin_id, choice):
         )
 
 
-async def synthesize_silero(text, output, choice):
+async def synthesize_silero(text, output, choice, speed="normal"):
     """Invoke optional local worker; no third-party paid API involved."""
     speaker = VOICE_CHOICES[choice][1]
     if not speaker:
@@ -99,6 +126,7 @@ async def synthesize_silero(text, output, choice):
     conv = await asyncio.create_subprocess_exec(
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
         "-y", "-i", str(wav), "-vn", "-ac", "1",
+        "-af", speed_filter(speed),
         "-c:a", "libopus", "-b:a", "32k", str(output),
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
@@ -142,7 +170,7 @@ def split_voice_text(text, limit=135):
     return chunks
 
 
-async def synthesize_voice(text, output):
+async def synthesize_voice(text, output, speed="normal"):
     """Render short TTS requests and combine as one Telegram OGG/Opus note."""
     if not shutil.which("ffmpeg"):
         raise RuntimeError("На сервере не установлен ffmpeg.")
@@ -195,6 +223,7 @@ async def synthesize_voice(text, output):
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
         "-y", "-f", "concat", "-safe", "1",
         "-i", str(manifest), "-vn", "-ac", "1",
+        "-af", speed_filter(speed),
         "-c:a", "libopus", "-b:a", "32k", str(output),
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
@@ -213,6 +242,7 @@ def install(dp, *, is_admin, connect, render_text, log):
         await q.answer()
         await state.set_state(VoiceFlow.text)
         current_voice = get_voice(q.from_user.id)
+        current_speed = get_speed(q.from_user.id)
         await render_text(q.message,
             "🎙 МАГА | ГОЛОСОВОЙ САЛАМ\n\n"
             "Пиши текст, брат, — Мага озвучит его мужским голосом.\n"
@@ -220,6 +250,7 @@ def install(dp, *, is_admin, connect, render_text, log):
             f"До 700 символов. Голос: {VOICE_CHOICES[current_voice][0]}.\n"
             "Silero — бесплатный локальный вариант, характер речи слушай в предпросмотре.",
             keyboard([[("🎭 Выбрать голос", "ac:voicevoices")],
+                      [("🐢 Скорость речи", "ac:voicespeeds")],
                       [("⬅️ В штаб", "ac:voicecancel")]]))
 
     @dp.callback_query(F.data == "ac:voicevoices")
@@ -253,6 +284,33 @@ def install(dp, *, is_admin, connect, render_text, log):
         set_voice(q.from_user.id, choice)
         await voice_menu(q, state)
 
+    @dp.callback_query(F.data == "ac:voicespeeds")
+    async def voice_speeds(q):
+        if not is_admin(q.from_user.id):
+            return await q.answer("Нет доступа", show_alert=True)
+        await q.answer()
+        current = get_speed(q.from_user.id)
+        rows = [[(("✅ " if current == key else "") + label, f"ac:setspeed:{key}")]
+                for key, (label, _) in SPEED_CHOICES.items()]
+        rows.append([("⬅️ К озвучке, брат", "ac:voice")])
+        await render_text(q.message,
+            "🐢 МАГА | ТЕМП РЕЧИ\n\n"
+            "Медленно — тянем слова, жи есть!\n"
+            "Спокойно — без суеты.\n"
+            "Обычно — как раньше.\n\n"
+            "Темп меняется без повышения или понижения голоса.",
+            keyboard(rows))
+
+    @dp.callback_query(F.data.startswith("ac:setspeed:"))
+    async def set_speed_option(q, state):
+        if not is_admin(q.from_user.id):
+            return await q.answer("Нет доступа", show_alert=True)
+        choice = q.data.rsplit(":", 1)[-1]
+        if choice not in SPEED_CHOICES:
+            return await q.answer("Такого темпа нет, брат.", show_alert=True)
+        set_speed(q.from_user.id, choice)
+        await voice_menu(q, state)
+
     @dp.message(VoiceFlow.text)
     async def receive_text(m, state):
         if not is_admin(m.from_user.id):
@@ -273,10 +331,11 @@ def install(dp, *, is_admin, connect, render_text, log):
             with tempfile.TemporaryDirectory(prefix="maga_tts_") as work:
                 path = Path(work) / "maga.ogg"
                 selected_voice = get_voice(m.from_user.id)
+                selected_speed = get_speed(m.from_user.id)
                 if selected_voice == "edge":
-                    await synthesize_voice(body, path)
+                    await synthesize_voice(body, path, selected_speed)
                 else:
-                    await synthesize_silero(body, path, selected_voice)
+                    await synthesize_silero(body, path, selected_voice, selected_speed)
                 preview = await m.bot.send_voice(
                     m.chat.id, FSInputFile(path),
                     caption="🎙 МАГА | ПРОСЛУШКА\n\nЗацени, вацок. "
@@ -291,6 +350,7 @@ def install(dp, *, is_admin, connect, render_text, log):
                 maga_voice_file_id=preview.voice.file_id,
                 maga_voice_text=body,
                 maga_voice_engine=selected_voice,
+                maga_voice_speed=selected_speed,
                 maga_voice_preview_id=preview.message_id,
             )
             await state.set_state(VoiceFlow.confirm)
