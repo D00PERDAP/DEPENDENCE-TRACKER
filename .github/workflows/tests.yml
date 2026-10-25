@@ -19,8 +19,8 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt
       - name: Compile all code
-        run: python -m compileall -q bot.py backup_before_upgrade.py v2_experience.py v2_data.py harm_reduction.py stats_dashboard.py context_memes.py photo_memes.py meme_engine.py meme_studio.py meme_ai.py meme_vision.py meme_harvester.py meme_review_store.py meme_collector.py
+        run: python -m compileall -q bot.py backup_before_upgrade.py v2_experience.py v2_data.py harm_reduction.py stats_dashboard.py context_memes.py photo_memes.py meme_engine.py real_memes.py meme_studio.py meme_ai.py meme_vision.py meme_harvester.py meme_review_store.py meme_collector.py
       - name: Run complete test suite
         run: python -m unittest discover -s tests -v
-      - name: Verify dynamic meme JPEG rendering
-        run: python -c "import meme_engine as m; from PIL import Image; from io import BytesIO; x=m.make_spec(\"Мефедрон\",\"ex\",1,1,seed=2026); y=m.make_spec(\"Мефедрон\",\"ex\",1,2,seed=2026); a=m.render(x); b=m.render(y); assert a != b; assert Image.open(BytesIO(a)).size == (850,850)"
+      - name: Verify old-school Russian photo meme overlays
+        run: python -c "import real_memes as m; from PIL import Image; from io import BytesIO; im=Image.new(\"RGB\",(800,950)); mem=BytesIO(); im.save(mem,format=\"JPEG\"); x=m.compose(mem.getvalue(),\"ПОШАЛИМ?\",\"НЕ НАДО, БРАТ\",1); assert Image.open(BytesIO(x)).size == (850,960)"
