@@ -1,5 +1,7 @@
 """Automated image discovery and local review queue; no unlicensed auto-publication."""
 import hashlib
+import ipaddress
+import socket
 import io
 import json
 import re
@@ -32,6 +34,10 @@ def fetch(url, limit):
     parsed = urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname:
         raise ValueError("HTTPS URL required")
+    for record in socket.getaddrinfo(parsed.hostname, 443, type=socket.SOCK_STREAM):
+        address = ipaddress.ip_address(record[4][0])
+        if not address.is_global:
+            raise ValueError("Non-public network target blocked")
     req = urllib.request.Request(url, headers=HEADERS)
     with urllib.request.urlopen(req, timeout=15) as response:
         if response.geturl().split(":")[0] != "https":
