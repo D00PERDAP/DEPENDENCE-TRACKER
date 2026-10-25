@@ -60,7 +60,7 @@ class V2DataTests(unittest.TestCase):
             db.set_setting(c, 42, base_interval=30)
             s = db.get_settings(c, 42)
             self.assertEqual(db.active_minutes(s, self.at), 30)
-            db.set_setting(c, 42, boost_until=v2_data.stamp(self.at + timedelta(hours=1)))
+            db.set_setting(c, 42, boost_until=db.stamp(self.at + timedelta(hours=1)))
             s = db.get_settings(c, 42)
             self.assertEqual(db.active_minutes(s, self.at), 10)
             self.assertEqual(db.active_minutes(s, self.at + timedelta(hours=2)), 30)
