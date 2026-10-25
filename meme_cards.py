@@ -98,7 +98,7 @@ def card(days: int, substance: str, variant: int = 0) -> bytes:
     d.rounded_rectangle((30, 28, 930, 110), radius=25, fill="#c52231")
     d.text((480, 70), "НЕ СЕГОДНЯ / МЕМ-ТРЕКЕР", font=font(32), anchor="mm", fill="white")
     label = LABELS.get(substance, substance.upper())
-    headline = f"{days} ДНЕЙ БЕЗ {label}" if days != 1 else f"1 ДЕНЬ БЕЗ {label}"
+    headline = "НАЧАЛО ПУТИ" if days < 0 else (f"{days} ДНЕЙ БЕЗ {label}" if days != 1 else f"1 ДЕНЬ БЕЗ {label}")
     # Fit long names into the canvas
     size = 66
     while size > 28 and d.textbbox((0,0), headline, font=font(size))[2] > 890:
