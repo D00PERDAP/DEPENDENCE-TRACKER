@@ -21,7 +21,8 @@ class OneSentenceQualityTests(unittest.TestCase):
         self.assertEqual(set(Counter(x["risk"] for x in items).values()),{300})
         for item in items:
             txt=item["text"]
-            self.assertLessEqual(txt.count("."),1)
+            self.assertEqual(len(txt.split()),1)
+            self.assertTrue(txt.replace("-","").isalpha())
             self.assertTrue(3<=len(txt)<=48)
             self.assertNotIn("шмякобздюх",txt.lower())
             self.assertNotIn("не натвори делов",txt.lower())
@@ -32,8 +33,8 @@ class OneSentenceQualityTests(unittest.TestCase):
         entries=joke_catalog.bank()
         captions=[x["text"] for x in entries]
         self.assertIn("арахис",captions)
-        self.assertIn("я в душе под мефом",captions)
-        self.assertGreaterEqual(sum(len(t.split())==1 for t in captions),150)
+        self.assertIn("кефир",captions)
+        self.assertEqual(sum(len(t.split())==1 for t in captions),3000)
         self.assertGreaterEqual(sum(len(t)<=30 for t in captions),800)
         self.assertGreaterEqual(len({x["mood"] for x in entries}),7)
         self.assertFalse(any("а на допрос" in t for t in captions))
