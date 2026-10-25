@@ -187,6 +187,19 @@ def monthly_summary(c, uid, month=None):
                     durations.append(hours_long)
         except (TypeError, ValueError):
             continue
+    latest = c.execute(
+        "SELECT substance, started FROM sessions WHERE user_id=? ORDER BY started DESC LIMIT 1",
+        (uid,)
+    ).fetchone()
+    last_record = None
+    if latest:
+        try:
+            last_record = {
+                "substance": latest["substance"] or "Не указано",
+                "date": datetime.fromisoformat(latest["started"]).strftime("%d.%m.%Y"),
+            }
+        except (TypeError, ValueError):
+            last_record = {"substance": latest["substance"] or "Не указано", "date": "Неизвестно"}
     risks = Counter(x["tag"] for x in events if x["event_type"] == "risk")
     resolved = sum(1 for x in events if x["event_type"] == "risk" and x["resolved"])
     checkins = sum(1 for x in events if x["event_type"] == "state")
@@ -196,4 +209,5 @@ def monthly_summary(c, uid, month=None):
         "resolved": resolved, "checkins": checkins,
         "weekdays": weekdays, "hours": hours,
         "durations": durations, "event_count": len(events),
+        "last_record": last_record,
     }
