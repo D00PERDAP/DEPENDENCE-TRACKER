@@ -17,7 +17,15 @@ def read(index=INDEX):
     index = Path(index)
     if not index.exists():
         return []
-    payload = json.loads(index.read_text(encoding="utf-8"))
+    raw = index.read_text(encoding="utf-8")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        # Legacy admin button once wrote the two literal bytes "\n" after JSON.
+        # Recover ONLY this known valid-JSON prefix, preserving every record.
+        if not raw.endswith("\\n"):
+            raise
+        payload = json.loads(raw[:-2])
     if not isinstance(payload, list):
         raise ValueError("Review index is not a JSON array")
     return payload
