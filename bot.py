@@ -2,6 +2,7 @@ import asyncio
 import io
 import os
 import hashlib
+import hmac
 import random
 import tempfile
 import sqlite3
@@ -99,6 +100,11 @@ def init():
           PRIMARY KEY(user_id, meme_key)
         );
         """)
+    with connect() as c:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS bot_admins (user_id INTEGER PRIMARY KEY, created_at TEXT, last_login TEXT);
+        CREATE TABLE IF NOT EXISTS bot_user_profiles (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, last_seen TEXT);
+        """)
     v2_data.migrate(connect)
     meme_engine.init(connect)
     real_memes.init(connect)
@@ -140,7 +146,7 @@ async def display(message, text, markup):
     await message.answer(text, reply_markup=markup)
 
 
-def home_buttons(running=False):
+def home_buttons(running=False, admin=False):
     # One compact dashboard; secondary features stay inside their sections.
     rows = [
         [("😂 Мем", "v2:meme"), ("🔥 Стоп", "v2:impulses")],
@@ -149,7 +155,115 @@ def home_buttons(running=False):
     ]
     rows.insert(0, [("⏹ Завершить", "v2:finish")] if running
                 else [("▶️ Начать", "v2:start")])
+    if admin:
+        rows.append([("🛠 Админка", "admin:panel")])
     return kb(rows)
+
+
+def is_meme_admin_id(uid):
+    if str(uid) in os.getenv("ADMIN_IDS", "").split(","):
+        return True
+    with connect() as c:
+        return c.execute("SELECT 1 FROM bot_admins WHERE user_id=?", (uid,)).fetchone() is not None
+
+
+class AdminAuth(StatesGroup):
+    password = State()
+    media = State()
+
+
+@dp.message(F.text.regexp(r"(?i)^админ(?:\\s+.+)?$"))
+async def admin_enter(m: Message, state: FSMContext):
+    if m.chat.type != "private":
+        return
+    parts = m.text.split(maxsplit=1)
+    if len(parts) == 1:
+        await state.set_state(AdminAuth.password)
+        return await m.answer("🔐 Пароль администратора:")
+    await admin_verify(m, state, parts[1])
+
+
+@dp.message(AdminAuth.password)
+async def admin_password(m: Message, state: FSMContext):
+    await admin_verify(m, state, m.text or "")
+
+
+async def admin_verify(m, state, password):
+    secret = os.getenv("ADMIN_PASSWORD", "")
+    ok = bool(secret) and hmac.compare_digest(password, secret)
+    try:
+        await m.delete()
+    except Exception:
+        pass
+    if not ok:
+        return await m.answer("❌ Неверный пароль или ADMIN_PASSWORD не задан.")
+    with connect() as c:
+        c.execute("""INSERT INTO bot_admins VALUES(?,?,?)
+                     ON CONFLICT(user_id) DO UPDATE SET last_login=excluded.last_login""",
+                  (m.from_user.id, iso(), iso()))
+    await state.clear()
+    await m.answer("✅ Вход выполнен", reply_markup=kb([[("🛠 Админка", "admin:panel")]]))
+
+
+@dp.callback_query(F.data == "admin:panel")
+async def admin_panel(q: CallbackQuery):
+    await q.answer()
+    if not is_meme_admin_id(q.from_user.id):
+        return
+    with connect() as c:
+        users = c.execute("SELECT COUNT(*) FROM bot_user_profiles").fetchone()[0]
+        admins = c.execute("SELECT COUNT(*) FROM bot_admins").fetchone()[0]
+    await display(q.message, f"🛠 АДМИНКА\\n\\nПользователей: {users}\\nАдминов: {admins}", kb([
+        [("📸 Добавить фото/видео", "admin:media")],
+        [("🔄 Обновить", "admin:panel"), ("🚪 Выйти", "admin:logout")],
+        [("🏠 Меню", "v2:home")],
+    ]))
+
+
+@dp.callback_query(F.data == "admin:logout")
+async def admin_logout(q: CallbackQuery):
+    await q.answer()
+    with connect() as c:
+        c.execute("DELETE FROM bot_admins WHERE user_id=?", (q.from_user.id,))
+    await display(q.message, "Выход из админки.", kb([[("🏠 Меню", "v2:home")]]))
+
+
+@dp.callback_query(F.data == "admin:media")
+async def admin_media_prompt(q: CallbackQuery, state: FSMContext):
+    await q.answer()
+    if not is_meme_admin_id(q.from_user.id):
+        return
+    await state.set_state(AdminAuth.media)
+    await display(q.message, "📸 Пришли фото или видео, на которое у тебя есть права. /start — отмена.", None)
+
+
+@dp.message(AdminAuth.media)
+async def admin_media_upload(m: Message, state: FSMContext):
+    if not is_meme_admin_id(m.from_user.id):
+        return
+    media = m.photo[-1] if m.photo else m.video
+    if not media:
+        return await m.answer("Отправь фото или видео.")
+    if (media.file_size or 0) > 19_000_000:
+        return await m.answer("Максимум 19 МБ.")
+    status = await m.answer("⏳ Добавляю...")
+    try:
+        with tempfile.TemporaryDirectory(prefix="admin_upload_") as tmp:
+            path = Path(tmp) / ("source.jpg" if m.photo else "source.mp4")
+            await m.bot.download(media.file_id, destination=path)
+            result = await asyncio.to_thread(
+                reaction_bank.import_media, path, person="Админ",
+                mood="auto", confirm_rights=True, credit="Authorized admin upload")
+        await state.clear()
+        await status.edit_text(f"✅ Новых кадров: {result['added']}. Всего: {result['total']}.",
+                               reply_markup=kb([[("🛠 Админка", "admin:panel")]]))
+        try:
+            await m.delete()
+        except Exception:
+            pass
+    except Exception as exc:
+        print(f"Admin media upload: {exc}", flush=True)
+        await status.edit_text("❌ Ошибка загрузки. Проверь журнал сервиса.")
 
 
 @dp.callback_query(F.data == "ui:mine")
@@ -172,7 +286,7 @@ async def home(message, uid):
         text = f"💀 НЕ НАТВОРИ ДЕЛОВ\n\n🔴 Сопровождение активно.\nТвоих запретов: {count}\n\nЕсли тебя несёт или плохо — есть быстрые кнопки."
     else:
         text = "💀 НЕ НАТВОРИ ДЕЛОВ\n\nНачни сопровождение, отметь свои запреты или просто проверь состояние.\nБез длинных анкет."
-    await display(message, text, home_buttons(bool(session)))
+    await display(message, text, home_buttons(bool(session), is_meme_admin_id(uid)))
 
 
 def meme_key(path):
@@ -439,7 +553,7 @@ def is_meme_admin(user):
     """No privileged actions for ordinary bot members."""
     admins = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",")
               if x.strip().isdigit()}
-    return bool(user and user.id in admins)
+    return bool(user and (user.id in admins or is_meme_admin_id(user.id)))
 
 
 @dp.message(Command("mellstroy"))
@@ -634,6 +748,12 @@ async def review_meme(q: CallbackQuery):
 @dp.message(CommandStart())
 async def start(m: Message, state: FSMContext):
     await state.clear()
+    with connect() as c:
+        c.execute("""INSERT INTO bot_user_profiles VALUES(?,?,?,?)
+                     ON CONFLICT(user_id) DO UPDATE SET
+                     username=excluded.username,first_name=excluded.first_name,
+                     last_seen=excluded.last_seen""",
+                  (m.from_user.id, m.from_user.username, m.from_user.first_name, iso()))
     await home(m, m.from_user.id)
 
 
