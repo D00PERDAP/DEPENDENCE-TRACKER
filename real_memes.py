@@ -77,7 +77,7 @@ LINES = {
     ],
     "ex": [
         ("КОГДА ЗАХОТЕЛОСЬ НАПИСАТЬ БЫВШЕЙ", "ТЕЛЕФОН: ПОЩАДИ МЕНЯ"),
-        ("Я В 04:12: ПРОСТО УЗНАЮ, КАК ОНА", "СУД ПРИГОВОРИЛ: ЛЕГКИ СПАТЬ"),
+        ("Я В 04:12: ПРОСТО УЗНАЮ, КАК ОНА", "СУД ПРИГОВОРИЛ: ЛЕЧЬ СПАТЬ"),
         ("ДИАЛОГ С БЫВШЕЙ В ТРИ НОЧИ", "ЛУЧШЕ БЫ Я ПОГОДУ ПОСМОТРЕЛ"),
         ("МОЗГ: НАПИШИ «ПРИВЕТ»", "ПАЛЕЦ: НАЖАЛ «УДАЛИТЬ ЧАТ»"),
         ("КОГДА ОТКРЫЛ ЕЁ ПРОФИЛЬ", "И ВСПОМНИЛ, ЗАЧЕМ РАССТАЛИСЬ"),
@@ -208,14 +208,37 @@ def _top_templates():
     return found
 
 def _curated_templates():
-    # File extension whitelist and no recursive import from user-supplied paths.
-    if not CURATED.is_dir():
-        return []
-    return [{"id":"owner-"+hashlib.sha1(p.name.encode()).hexdigest()[:12],
-             "name":"approved Russian retro template","path":p}
-            for p in CURATED.iterdir()
-            if p.is_file() and p.suffix.lower() in (".jpeg",".jpg",".png",".webp")
-            and p.stat().st_size>1200 and p.stat().st_size<=MAX_BYTES]
+    # A photo submitted by the Telegram admin with /addmeme ... YES is both
+    # EXIF-cleaned and stored with rights provenance. Prefer this curated source
+    # over scraped random content. Keep its substance/risk tags for matching.
+    output=[]
+    assets=ROOT/"assets"/"memes"
+    ledger=ROOT/"data"/"meme_admin_imports.json"
+    if ledger.is_file():
+        try:
+            rows=json.loads(ledger.read_text(encoding="utf-8"))
+            if not isinstance(rows,list):
+                rows=[]
+            for item in rows:
+                if not isinstance(item,dict) or item.get("rights_confirmed_by_admin") is not True:
+                    continue
+                path=(assets/str(item.get("file",""))).resolve()
+                if not path.is_relative_to(assets.resolve()):
+                    continue
+                if path.is_file() and path.suffix.lower() in (".jpeg",".jpg",".png",".webp") and 1200<path.stat().st_size<=MAX_BYTES:
+                    output.append({"id":"approved-"+str(item.get("sha256",""))[:16],
+                                   "name":"approved Russian retro template",
+                                   "path":path,"substance":item.get("substance","general"),
+                                   "risk":item.get("risk","general")})
+        except (OSError,ValueError,TypeError) as exc:
+            print(f"Photo approval ledger unavailable: {type(exc).__name__}",flush=True)
+    if CURATED.is_dir():
+        for p in CURATED.iterdir():
+            if p.is_file() and p.suffix.lower() in (".jpeg",".jpg",".png",".webp") and 1200<p.stat().st_size<=MAX_BYTES:
+                output.append({"id":"owner-"+hashlib.sha1(p.name.encode()).hexdigest()[:12],
+                               "name":"approved Russian retro template",
+                               "path":p,"substance":"general","risk":"general"})
+    return output
 
 def _source_bytes(template):
     if "path" in template:
@@ -223,7 +246,10 @@ def _source_bytes(template):
     ident=str(template["id"])
     if not ident.isdigit():
         raise ValueError("Invalid imgflip ID")
-    CACHE.mkdir(parents=True,exist_ok=True)
+    try:
+        CACHE.mkdir(parents=True,exist_ok=True)
+    except OSError:
+        pass
     cached=CACHE/(ident+".jpg")
     if cached.is_file() and 1000<cached.stat().st_size<=MAX_BYTES:
         return cached.read_bytes()
@@ -400,12 +426,20 @@ def _prepare(connect,uid,substance,risk,allow_paid=False):
         templates+=_top_templates()
     except Exception as exc:
         print(f"Imgflip catalog unavailable: {type(exc).__name__}: {exc}",flush=True)
-    random.Random(secrets.randbits(64)).shuffle(templates)
-    # Stable rotation: avoid reusing the same template on consecutive requests.
-    # With N stable templates, every N turns starts using alternate captions.
-    if templates:
-        start=(serial-1)%len(templates)
-        templates=templates[start:]+templates[:start]
+    # Apply strong topic matching and exclude images seen very recently.
+    # A user's own approved pictures go first when they fit their context.
+    with connect() as c:
+        recent={str(row[0]) for row in c.execute(
+            "SELECT template_id FROM real_meme_sent WHERE user_id=?"
+            " ORDER BY serial DESC LIMIT 15",(uid,)).fetchall()}
+    def rank(t):
+        is_curated="path" in t
+        matches=(t.get("risk")==risk or t.get("risk")=="general")
+        return (0 if is_curated and matches else
+                1 if not is_curated else 2)
+    rng=random.Random(secrets.randbits(64))
+    rng.shuffle(templates)
+    templates.sort(key=lambda t:(1 if t["id"] in recent else 0,rank(t)))
     top,bottom=_lines(risk,serial)
     # Owner's paid optional photo generator has a hard daily request ceiling.
     if allow_paid and _budget(connect):
