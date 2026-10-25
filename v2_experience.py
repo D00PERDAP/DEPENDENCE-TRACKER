@@ -262,15 +262,14 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     f"Твоих запретов: {count}\n"
                     f"Напоминания: {'не включены' if not session else '⏸ тишина' if settings['quiet'] else str(settings['base_interval']) + ' минут'}\n\n"
                     "Что нужно прямо сейчас?")
-            await panel(q, text, [
-                [("😂 ДАЙ МЕМ", "v2:meme")],
-                [("🔥 Меня несёт", "v2:impulses"), ("🫀 Как я?", "v2:checkin")],
-                [("🔔 Напоминания", "v2:settings"), ("🆘 Мне плохо", "v2:safety")],
-                [("☑️ Мои запреты", "check"), ("📊 Статистика", "v2:stats")],
-                [("🎯 Мемы по темам", "v2:memethemes")],
-                *([[( "⏹ Завершить", "v2:finish")]] if session else
-                  [[("▶️ Начать сопровождение", "v2:start")]]),
-            ])
+            rows = [
+                [("😂 Мем", "v2:meme"), ("🔥 Стоп", "v2:impulses")],
+                [("🫀 Состояние", "v2:checkin"), ("🆘 Помощь", "v2:safety")],
+                [("⚙️ Моё", "ui:mine")],
+            ]
+            rows.insert(0, [("⏹ Завершить", "v2:finish")] if session
+                        else [("▶️ Начать", "v2:start")])
+            await panel(q, text, rows)
             return
 
         if action == "start":
