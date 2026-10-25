@@ -71,9 +71,9 @@ async def send_card(message, uid, menu=False):
         current = active(c, uid)
     days = max(0, (datetime.now(timezone.utc) - datetime.fromisoformat(last['started'])).days) if last else -1
     variant = secrets.randbelow(10000)
-    subtitle = ('🔴 Идёт запись сессии.' if current else
-                f'🗿 {days} дн. с последней записи в журнале.' if last else
-                '🗿 Начни с записи или просто лови мем.')
+    subtitle = ('🔴 Идёт запись употребления. Следи за самочувствием.' if current else
+                f'🗿 Последняя запись: {days} дн. назад.' if last else
+                '🗿 Запиши событие или просто лови мем.')
     subtitle += '\\nСчётчик основан только на твоих записях.'
     kb = main_kb() if menu else keyboard([[('🎲 Другой мем','meme')], [('🏠 Меню','home')]])
     try:
@@ -86,7 +86,7 @@ async def send_card(message, uid, menu=False):
                 pass
         await message.answer_photo(BufferedInputFile(picture, filename='meme.png'), caption=subtitle, reply_markup=kb)
     except Exception:
-        await message.answer('🗿 НЕ СЕГОДНЯ\\n' + subtitle, reply_markup=kb)
+        await message.answer('🗿 НЕ НАТВОРИ ДЕЛОВ\\n' + subtitle, reply_markup=kb)
 
 async def home(message, uid):
     await send_card(message, uid, menu=True)
@@ -243,7 +243,7 @@ async def stats(q:CallbackQuery):
     if not rows: txt='📊 СТАТИСТИКА\n\nПока нет записей. НИКТО НЕ РОЖДАЕТСЯ С EXCEL В ГОЛОВЕ.'
     else:
         last=datetime.fromisoformat(rows[0]['started']);days=(datetime.now(timezone.utc)-last).days
-        txt=f'📊 СТАТИСТИКА\n\nВсего сессий: {len(rows)}\nС последней записи: {days} дн.\nПоследнее вещество: {rows[0]["substance"]}\n\nЭто период с последней записи, не медицинская оценка.'
+        txt=f'📊 СТАТИСТИКА\n\nВсего сессий: {len(rows)}\nПоследняя запись: {days} дн. назад\nПоследнее вещество: {rows[0]["substance"]}\n\nЭто история записанного употребления, не показатель трезвости.'
     await q.answer();await show(q.message,txt,keyboard([[('⚙️ Ещё','more')], [('🏠 Меню','home')]]))
 
 @bot_dp.callback_query(F.data == 'safety')
