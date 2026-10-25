@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from meme_studio import ensure_catalog
 import context_memes
 import meme_engine
+import real_memes
 import v2_data
 import v2_experience
 
@@ -96,6 +97,7 @@ def init():
         """)
     v2_data.migrate(connect)
     meme_engine.init(connect)
+    real_memes.init(connect)
 
 
 def kb(rows):
@@ -135,18 +137,18 @@ async def display(message, text, markup):
 
 
 def home_buttons(running=False):
+    # 5 clear choices first, many targeted buttons only when entering a section.
     rows = [
-        [("🫀 Как я?", "v2:checkin"), ("🆘 Мне плохо", "v2:safety")],
-        [("🔥 Останови меня", "v2:impulses")],
-        [("☑️ Мои запреты", "check"), ("🎭 Мем", "v2:meme")],
-        [("📊 Моя статистика", "v2:stats"), ("❓ Вопросы", "v2:faq")],
-        [("⚙️ Напоминания", "v2:settings")],
+        [("😂 ДАЙ МЕМ", "v2:meme")],
+        [("🔥 Меня несёт", "v2:impulses"), ("🫀 Как я?", "v2:checkin")],
+        [("🔔 Напоминания", "v2:settings"), ("🆘 Мне плохо", "v2:safety")],
+        [("☑️ Мои запреты", "check"), ("📊 Статистика", "v2:stats")],
+        [("❓ Помощь и вопросы", "v2:faq")],
     ]
     if running:
-        rows.insert(0, [("🔴 Сопровождение активно", "v2:settings"),
-                        ("⏹ Завершить", "v2:finish")])
+        rows.append([("⏹ Завершить сопровождение", "v2:finish")])
     else:
-        rows.insert(0, [("▶️ Начать сопровождение", "v2:start")])
+        rows.insert(1, [("▶️ Начать сопровождение", "v2:start")])
     return kb(rows)
 
 
@@ -190,12 +192,12 @@ async def deliver_meme(message, uid, category="general"):
         session = active(c, uid)
         settings = v2_data.get_settings(c, uid)
         substance = session["substance"] if session else settings["last_substance"]
-    return await meme_engine.send(message, uid, substance,
-                                  map_risk.get(category, "general"), connect)
+    return await real_memes.send(message, uid, substance,
+                                map_risk.get(category, "general"), connect)
 
 
 async def send_situation_meme(message, uid):
-    """Each /meme and button click gets a distinct, contextual cartoon JPEG."""
+    """Use old-school real photo templates with readable, varied Russian jokes."""
     with connect() as c:
         session = active(c, uid)
         settings = v2_data.get_settings(c, uid)
@@ -207,7 +209,7 @@ async def send_situation_meme(message, uid):
             (uid, v2_data.stamp(utcnow() - timedelta(hours=3)))
         ).fetchone()
         risk = risk_row["tag"] if risk_row else v2_experience.risk_from_titles(titles)
-    return await meme_engine.send(message, uid, substance, risk, connect)
+    return await real_memes.send(message, uid, substance, risk, connect)
 
 
 @dp.message(Command("meme_count"))
@@ -581,6 +583,7 @@ async def delete_yes(q: CallbackQuery):
         c.execute("DELETE FROM meme_votes WHERE user_id=?", (uid,))
         c.execute("DELETE FROM meme_dynamic_history WHERE user_id=?", (uid,))
         c.execute("DELETE FROM meme_dynamic_counter WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM real_meme_sent WHERE user_id=?", (uid,))
         v2_data.erase_user(c, uid)
     await q.answer("Удалено")
     await display(q.message, "История удалена из активной базы. Резервные копии на сервере удаляются отдельно.", kb([[("🏠 Меню", "home")]]))
@@ -669,8 +672,8 @@ async def reminder_loop(bot):
                 try:
                     # Every due reminder gets a fresh generated character, pose,
                     # background, line and unique per-user serial number.
-                    await meme_engine.send_bot(bot, uid, session["substance"],
-                                               risk, connect, caption, keyboard)
+                    await real_memes.send_bot(bot, uid, session["substance"],
+                                              risk, connect, caption, keyboard)
                 except Exception as exc:
                     # Leave an audit trail and try again in one minute, rather
                     # than advancing the timer without delivering anything.
@@ -777,7 +780,8 @@ async def main():
     if not TOKEN or TOKEN == "put_your_token_here":
         raise RuntimeError("Set BOT_TOKEN in .env")
     init()
-    print("Dynamic picture-meme engine ready (no external image service)", flush=True)
+    print("Photo meme feed enabled (Imgflip, no key required; "
+          "optional paid AI only with explicit opt-in)", flush=True)
     bot = Bot(TOKEN)
     task = asyncio.create_task(reminder_loop(bot))
     followups_task = asyncio.create_task(v2_experience.followup_loop(bot, connect, kb))
