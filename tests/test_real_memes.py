@@ -160,6 +160,80 @@ class PhotoSendTests(unittest.IsolatedAsyncioTestCase):
         msg.answer.assert_not_awaited()
         api.assert_not_called()
 
+    async def test_broken_reaction_db_still_uses_legacy_mellstroy(self):
+        msg=type("FakeMessage",(),{"answer_photo":AsyncMock(),
+                                  "answer":AsyncMock()})()
+        legacy={"id":"mellstroy-goodframe","path":"frame.jpg","mood":"shock"}
+        with patch.object(real_memes.reaction_bank,"templates",
+                          side_effect=OSError("sqlite readonly")):
+            with patch.object(real_memes.mellstroy_bank,"templates",
+                              return_value=[legacy]):
+                with patch.object(real_memes,"_source_bytes",
+                                  return_value=self.photo):
+                    with patch.object(real_memes,"_top_templates") as provider:
+                        result=await real_memes.send(
+                            msg,787,"Мефедрон","money",bot.connect)
+        self.assertTrue(result)
+        provider.assert_not_called()
+        msg.answer_photo.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+
+    async def test_corrupt_local_photo_tries_next_local_image(self):
+        msg=type("FakeMessage",(),{"answer_photo":AsyncMock(),
+                                  "answer":AsyncMock()})()
+        items=[{"id":"reaction-corrupt","path":"broken.jpg","mood":"shock"},
+               {"id":"reaction-good","path":"good.jpg","mood":"shock"}]
+        def read_image(item):
+            if item["id"]=="reaction-corrupt":
+                raise OSError("JPEG truncated")
+            return self.photo
+        with patch.object(real_memes.reaction_bank,"templates",
+                          return_value=items):
+            with patch.object(real_memes,"_source_bytes",side_effect=read_image):
+                with patch.object(real_memes,"_top_templates") as provider:
+                    result=await real_memes.send(
+                        msg,788,"Мефедрон","general",bot.connect)
+        self.assertTrue(result)
+        provider.assert_not_called()
+        msg.answer_photo.assert_awaited_once()
+
+    async def test_corrupt_all_local_sources_then_try_free_imgflip(self):
+        msg=type("FakeMessage",(),{"answer_photo":AsyncMock(),
+                                  "answer":AsyncMock()})()
+        local={"id":"reaction-corrupt","path":"lost.jpg","mood":"shock"}
+        def read_image(item):
+            if item["id"]=="reaction-corrupt":
+                raise OSError("File not readable")
+            return self.photo
+        with patch.object(real_memes.reaction_bank,"templates",
+                          return_value=[local]):
+            with patch.object(real_memes,"_top_templates",
+                              return_value=self.templates) as provider:
+                with patch.object(real_memes,"_premium_templates",
+                                  return_value=[]):
+                    with patch.object(real_memes,"_budget",return_value=False):
+                        with patch.object(real_memes,"_source_bytes",
+                                          side_effect=read_image):
+                            result=await real_memes.send(
+                                msg,789,"Мефедрон","general",bot.connect)
+        self.assertTrue(result)
+        provider.assert_called_once()
+        msg.answer_photo.assert_awaited_once()
+
+    async def test_local_diagnostic_renders_real_jpeg_and_needs_no_internet(self):
+        local={"id":"reaction-ok","path":"test.jpg","mood":"shock"}
+        with patch.object(real_memes.reaction_bank,"templates",
+                          return_value=[local]):
+            with patch.object(real_memes,"_curated_templates",return_value=[]):
+                with patch.object(real_memes,"_source_bytes",
+                                  return_value=self.photo):
+                    with patch.object(real_memes,"_top_templates") as provider:
+                        info=real_memes.source_diagnostics(bot.connect)
+        self.assertTrue(info["reaction"]["image_ok"])
+        self.assertEqual(info["reaction"]["available"],1)
+        self.assertEqual(info["jokes"],3000)
+        provider.assert_not_called()
+
     async def test_no_internet_never_fake_cartoon(self):
         msg=type("FakeMessage",(),{"answer_photo":AsyncMock(),"answer":AsyncMock()})()
         with patch.object(real_memes,"_curated_templates",return_value=[]):
