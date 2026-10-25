@@ -132,6 +132,67 @@ async def send_test_meme(m: Message):
     await m.answer_photo(FSInputFile(path), caption="💀 Не натвори делов. Ты сам выбираешь, чего не делать.")
 
 
+@dp.message(Command("meme_queue"))
+async def meme_queue(m: Message):
+    """Private review of discovered images. Set ADMIN_IDS to Telegram numeric IDs."""
+    admins = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
+    if not m.from_user or m.from_user.id not in admins:
+        return
+    import json
+    from meme_harvester import INDEX, ROOT
+    from aiogram.types import FSInputFile
+    items = json.loads(INDEX.read_text(encoding="utf-8")) if INDEX.exists() else []
+    pending = [x for x in items if x["status"] == "needs-rights-review"]
+    if not pending:
+        return await m.answer("Очередь пуста.")
+    for item in pending[:5]:
+        path = ROOT / item["preview"]
+        if path.is_file():
+            await m.answer_photo(FSInputFile(path), caption=f"#{item['id']} • Проверь права и содержание.\\nИсточник: {item['source']}"[:1024],
+                                 reply_markup=kb([[("✅ Права подтверждены", f"mapprove:{item['id']}"),
+                                                   ("❌ Отклонить", f"mreject:{item['id']}")]]))
+    await m.answer(f"Ожидают проверки: {len(pending)}. Показаны первые пять. /meme_queue — следующие после обработки.")
+
+
+@dp.callback_query(F.data.startswith("mapprove:") | F.data.startswith("mreject:"))
+async def review_meme(q: CallbackQuery):
+    admins = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
+    if q.from_user.id not in admins:
+        return await q.answer("Нет доступа", show_alert=True)
+    import json
+    import hashlib
+    import shutil
+    from meme_harvester import INDEX, ROOT
+    try:
+        item_id = int(q.data.partition(":")[2])
+    except ValueError:
+        return await q.answer("Неверный ID")
+    items = json.loads(INDEX.read_text(encoding="utf-8")) if INDEX.exists() else []
+    item = next((x for x in items if x["id"] == item_id and x["status"] == "needs-rights-review"), None)
+    if not item:
+        return await q.answer("Уже обработано", show_alert=True)
+    if q.data.startswith("mapprove:"):
+        source = (ROOT / item["preview"]).resolve()
+        review_root = (ROOT / "data" / "meme_review").resolve()
+        if not source.is_file() or not source.is_relative_to(review_root):
+            return await q.answer("Файл отсутствует", show_alert=True)
+        target_dir = ROOT / "assets" / "memes" / "general"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        target = target_dir / (digest + ".jpg")
+        if not target.exists():
+            shutil.copyfile(source, target)
+        item["status"] = "approved"
+        item["file"] = str(target.relative_to(ROOT))
+    else:
+        item["status"] = "rejected"
+    tmp = INDEX.with_suffix(".tmp")
+    tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+    tmp.replace(INDEX)
+    await q.answer("Сохранено")
+    await q.message.edit_reply_markup(reply_markup=None)
+
+
 @dp.message(CommandStart())
 async def start(m: Message, state: FSMContext):
     await state.clear()
