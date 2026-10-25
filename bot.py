@@ -165,7 +165,7 @@ def home_buttons(running=False, admin=False):
         [("⏹ Закончить, брат" if running else "💀 Сопровождение", "v2:finish" if running else "v2:start")],
         [("☑️ Моё слово", "check"), ("📊 Расклады Маги", "v2:stats")],
         [("😂 Мемчик от Маги", "v2:meme"), ("🆘 Нужна помощь", "v2:safety")],
-        [("⚙️ Настройки", "ui:mine")],
+        [("⚙️ Моё, вацок", "ui:mine")],
     ]
     if admin:
         rows.append([("🛠 Штаб Маги", "admin:panel")])
@@ -247,7 +247,7 @@ async def admin_panel(q: CallbackQuery):
     with connect() as c:
         users = c.execute("SELECT COUNT(*) FROM bot_user_profiles").fetchone()[0]
         admins = c.execute("SELECT COUNT(*) FROM bot_admins").fetchone()[0]
-    await display(q.message, f"🛠 ШТАБ МАГИ\n\nПользователей: {users}\nАдминов: {admins}", kb([
+    await display(q.message, f"🦅 МАГА | ШТАБ\n\nНа связи, главный!\n👥 Вацоков: {users}\n🛡 Админов: {admins}\n\nКуда двигаем, брат?", kb([
         [("👥 Пользователи", "admin:users:0"), ("🏴‍☠️ Тайные точки", "ac:treasures:0")],
         [("😂 Мемный центр", "admin:memehub"), ("📢 Рассылка", "ac:broadcast")],
         [("📊 Аналитика", "ac:stats"), ("🛡 Журнал", "ac:audit")],
@@ -534,24 +534,29 @@ async def admin_media_upload(m: Message, state: FSMContext):
 @dp.callback_query(F.data == "ui:mine")
 async def mine_menu(q: CallbackQuery):
     await q.answer()
-    await display(q.message, "⚙️ НАСТРОЙКИ МАГИ\n\n"
-                  "Все твои параметры в одном месте, брат.", kb([
-        [("🔔 Напоминания", "v2:settings")],
-        [("☑️ Мои правила", "check"), ("📊 Моя статистика", "v2:stats")],
-        [("😂 Мемный отдел", "v2:memethemes")],
-        [("🔐 Мои данные", "ui:privacy")],
-        [("🏠 На базу", "v2:home")],
-    ]))
+    await display(q.message,
+        "🦅 МАГА | ТВОИ НАСТРОЙКИ\n\n"
+        "Всё под рукой, вацок. Что подкрутим?",
+        kb([
+            [("🔔 Напоминалки", "v2:settings")],
+            [("☑️ Моё слово", "check"), ("📊 Мой расклад", "v2:stats")],
+            [("😂 Мемный движ", "v2:memethemes")],
+            [("🔐 Личное дело", "ui:privacy")],
+            [("🏠 На базу, брат", "v2:home")],
+        ]))
 
 
 @dp.callback_query(F.data == "ui:privacy")
 async def privacy_menu(q: CallbackQuery):
     await q.answer()
-    await display(q.message, "🔐 МОИ ДАННЫЕ\n\n"
-                  "Записи хранятся на сервере бота. Удаление необратимо.", kb([
-        [("🗑 Удалить мои записи", "delete_ask")],
-        [("⬅️ К настройкам", "ui:mine")],
-    ]))
+    await display(q.message,
+        "🔐 МАГА | ЛИЧНОЕ ДЕЛО\n\n"
+        "Твои записи хранятся на сервере бота.\n"
+        "Удаление необратимо, брат. Проверяй перед нажатием.",
+        kb([
+            [("🗑 Стереть мои записи", "delete_ask")],
+            [("⬅️ Назад к настройкам", "ui:mine")],
+        ]))
 
 
 async def home(message, uid):
