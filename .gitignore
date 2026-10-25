@@ -14,3 +14,7 @@ backups/
 
 # Locally generated original memes (regenerable; do not ignore approved uploads)
 assets/memes/**/original_*.jpg
+
+# Generated picture meme pack (re-created automatically on VPS)
+assets/memes/contextual/**/illustrated_*.jpg
+assets/memes/contextual/**/photo_*.jpg
