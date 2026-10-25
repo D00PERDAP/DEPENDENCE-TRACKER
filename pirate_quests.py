@@ -159,8 +159,6 @@ def install(dp):
         except Exception:pass
         async def expire():
             await asyncio.sleep(60)
-            try: await q.message.edit_media
-            except Exception:pass
             try:
                 await q.message.delete()
             except Exception:pass
