@@ -42,7 +42,7 @@ class PrivateChatOnly(BaseMiddleware):
         chat = getattr(event, "chat", None)
         if chat is None:
             chat = getattr(getattr(event, "message", None), "chat", None)
-        if chat is not None and str(chat.type) != "private":
+        if chat is not None and chat.type != "private":
             return None
         return await handler(event, data)
 
