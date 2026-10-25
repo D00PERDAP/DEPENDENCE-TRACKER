@@ -133,7 +133,7 @@ def install(dp, connect, is_admin, pirate):
             disabled={r[0] for r in c.execute("SELECT name FROM disabled_meme_characters")}
         rows=[[(("🔴 " if name in disabled else "🟢 ")+name[:35],f"ac:meme:{i}")] for i,name in enumerate(names)]
         rows += [[("📁 Все коллекции","admin:collections")],[("⬅️ Назад","ac:menu")]]
-        await show(q,"🎭 МЕМЫ\nПерсонажи из каталога. Выключение сохраняется как настройка модерации.",rows)
+        await show(q,"🎭 МЕМЫ\nПерсонажи из каталога. Список отключений для модерации (пока не влияет на выдачу мемов).",rows)
 
     @dp.callback_query(F.data.startswith("ac:meme:"))
     async def meme_toggle(q):
@@ -172,7 +172,6 @@ def install(dp, connect, is_admin, pirate):
         try: await m.delete()
         except Exception: pass
         if not body or len(body)>1000: return await m.answer("Текст от 1 до 1000 символов.")
-        await state.update_data(broadcast=body)
         await state.clear()
         await state.update_data(broadcast=body)
         await m.answer("📢 ПРЕДПРОСМОТР\n\n"+body,reply_markup=kb([[("✅ Отправить","ac:send")],[("❌ Отмена","ac:menu")]]))
