@@ -16,6 +16,7 @@ from aiogram.filters import Command
 from aiogram.types import BufferedInputFile
 
 import context_memes
+import meme_engine
 import harm_reduction as safety
 import stats_dashboard
 import v2_data as db
@@ -338,7 +339,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     [("☑️ Изменить запреты", "check"), ("🏠 Меню", "v2:home")],
                 ])
             if created:
-                await context_memes.send(q.message, uid, selected_sub,
+                await meme_engine.send(q.message, uid, selected_sub,
                                          risk_from_titles(selected), connect,
                                          meme_key, record_meme, meme_buttons)
             return
@@ -362,7 +363,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                  ("⚙️ Настройки", "v2:settings")],
                 [("🏠 Меню", "v2:home")],
             ])
-            return await context_memes.send(q.message, uid, substance,
+            return await meme_engine.send(q.message, uid, substance,
                                             risk_from_titles(titles), connect,
                                             meme_key, record_meme, meme_buttons)
 
@@ -371,7 +372,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 settings, session = setup_state(c, uid)
                 substance = session["substance"] if session else settings["last_substance"]
                 titles = [x["title"] for x in picked(c, uid)]
-            return await context_memes.send(q.message, uid, substance,
+            return await meme_engine.send(q.message, uid, substance,
                                             risk_from_titles(titles), connect,
                                             meme_key, record_meme, meme_buttons)
 
@@ -395,7 +396,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 [("🏠 Меню", "v2:home")],
             ])
             if param != "paranoia":
-                await context_memes.send(q.message, uid, substance, param, connect,
+                await meme_engine.send(q.message, uid, substance, param, connect,
                                          meme_key, record_meme, meme_buttons)
             return
 
@@ -535,7 +536,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     "ORDER BY id DESC LIMIT 1", (uid,)
                 ).fetchone()
                 risk = risk_row["tag"] if risk_row else risk_from_titles(selected)
-            return await context_memes.send(q.message, uid, substance, risk, connect,
+            return await meme_engine.send(q.message, uid, substance, risk, connect,
                                             meme_key, record_meme, meme_buttons)
 
         if action == "stats":
