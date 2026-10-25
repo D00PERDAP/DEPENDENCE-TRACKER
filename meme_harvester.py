@@ -9,7 +9,7 @@ import urllib.request
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote, urlsplit, urlunsplit
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 ROOT = Path(__file__).resolve().parent
@@ -31,6 +31,8 @@ SOURCES = [
 
 
 def fetch(url, limit):
+    parts = urlsplit(url)
+    url = urlunsplit((parts.scheme, parts.netloc, quote(parts.path, safe="/%:@"), quote(parts.query, safe="=&%:@+"), ""))
     parsed = urlparse(url)
     if parsed.scheme != "https" or not parsed.hostname:
         raise ValueError("HTTPS URL required")
