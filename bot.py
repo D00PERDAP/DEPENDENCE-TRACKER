@@ -596,51 +596,76 @@ def choose_meme(category, previous=None, user_id=None):
 
 
 async def reminder_loop(bot):
+    """Frequent opt-in nudges, with boost/quiet settings and relevant vetted memes."""
     while True:
         try:
             current = utcnow()
             with connect() as c:
-                due = c.execute("SELECT * FROM alerts WHERE next_at<=? ORDER BY next_at LIMIT 50", (current.isoformat(),)).fetchall()
+                due = c.execute(
+                    "SELECT * FROM alerts WHERE next_at<=? ORDER BY next_at LIMIT 50",
+                    (current.isoformat(),)
+                ).fetchall()
             for alert in due:
                 uid, sid = alert["user_id"], alert["session_id"]
                 with connect() as c:
-                    ses = c.execute("SELECT * FROM sessions WHERE id=? AND user_id=? AND ended IS NULL", (sid, uid)).fetchone()
-                    if not ses:
-                        c.execute("DELETE FROM alerts WHERE user_id=? AND session_id=?", (uid,sid))
+                    session = c.execute(
+                        "SELECT * FROM sessions WHERE id=? AND user_id=? AND ended IS NULL",
+                        (sid, uid)
+                    ).fetchone()
+                    if not session:
+                        c.execute("DELETE FROM alerts WHERE user_id=? AND session_id=?", (uid, sid))
                         continue
-                    began = datetime.fromisoformat(ses["started"])
+                    began = datetime.fromisoformat(session["started"])
                     if current - began >= timedelta(hours=24):
-                        c.execute("DELETE FROM alerts WHERE user_id=? AND session_id=?", (uid,sid))
-                        c.execute("UPDATE sessions SET ended=? WHERE id=? AND ended IS NULL", (iso(),sid))
+                        c.execute("DELETE FROM alerts WHERE user_id=? AND session_id=?", (uid, sid))
+                        c.execute("UPDATE sessions SET ended=? WHERE id=? AND ended IS NULL",
+                                  (iso(), sid))
                         continue
-                    selected = picked(c, uid)
-                    next_time = (current + timedelta(minutes=alert["interval_min"])).isoformat(timespec="seconds")
-                    c.execute("UPDATE alerts SET next_at=? WHERE user_id=? AND session_id=?",
-                              (next_time,uid,sid))
-                titles = [x["title"] for x in selected]
-                if not titles:
-                    continue
-                text = "🔔 ТЫ САМ РЕШИЛ:\n\n" + "\n".join("☑️ " + t for t in titles[:8]) + "\n\nНе принимай импульсивных решений. Если плохо — обращайся за помощью."
+                    settings = v2_data.get_settings(c, uid)
+                    if settings["quiet"]:
+                        later = (current + timedelta(minutes=max(15, int(settings["base_interval"])))).isoformat()
+                        c.execute("UPDATE alerts SET next_at=? WHERE user_id=? AND session_id=?",
+                                  (later, uid, sid))
+                        continue
+                    # Respect user-selected interval; temporary 10-minute boost expires itself.
+                    minutes = v2_data.active_minutes(settings, current)
+                    if minutes == 0:
+                        minutes = 30
+                    selected = [x["title"] for x in picked(c, uid)]
+                    last_risk = c.execute(
+                        "SELECT tag FROM v2_events WHERE user_id=? AND event_type='risk' "
+                        "AND created_at>=? ORDER BY id DESC LIMIT 1",
+                        (uid, v2_data.stamp(current - timedelta(hours=2)))
+                    ).fetchone()
+                    risk_tag = last_risk["tag"] if last_risk else None
+                    next_at = (current + timedelta(minutes=minutes)).isoformat(timespec="seconds")
+                    c.execute("UPDATE alerts SET interval_min=?,next_at=? "
+                              "WHERE user_id=? AND session_id=?", (minutes, next_at, uid, sid))
+                text, risk = v2_experience.reminder_text(session["substance"], selected, risk_tag)
+                keyboard = v2_experience.reminder_keyboard(kb)
                 try:
-                    # Opt-in only. Curated, local memes; no external image lookups, no AI.
-                    category = "general"
-                    lower = " ".join(titles).lower()
-                    if "бывш" in lower: category = "ex"
-                    elif "друз" in lower or "звон" in lower: category = "calls"
-                    elif "деньг" in lower or "трат" in lower: category = "money"
-                    elif "ехат" in lower or "руль" in lower: category = "travel"
-                    path = choose_meme(category, user_id=uid) or choose_meme("general", user_id=uid)
-                    if path:
+                    vetted = context_memes.candidates(session["substance"], risk)
+                    if vetted:
+                        with connect() as c:
+                            seen = {row[0] for row in c.execute(
+                                "SELECT meme_key FROM meme_sends WHERE user_id=? ORDER BY id DESC LIMIT 25",
+                                (uid,)
+                            ).fetchall()}
+                        fresh = [p for p in vetted if meme_key(p) not in seen]
+                        path = random.choice(fresh or vetted)
                         from aiogram.types import FSInputFile
-                        await bot.send_photo(uid, FSInputFile(path), caption=text[:1024], reply_markup=meme_buttons(path))
+                        await bot.send_photo(uid, FSInputFile(path), caption=text[:1024],
+                                             reply_markup=keyboard)
                         record_meme(uid, path)
                     else:
-                        await bot.send_message(uid, text)
+                        # No pretending generic, template-text cards are real photo memes.
+                        text += "\n\n🎭 " + context_memes.joke(session["substance"], risk)
+                        await bot.send_message(uid, text, reply_markup=keyboard)
                 except Exception as exc:
-                    print(f"Reminder delivery error for user {uid}: {type(exc).__name__}")
+                    print(f"Reminder delivery error: {type(exc).__name__}")
         except Exception as exc:
             print(f"Reminder loop error: {type(exc).__name__}: {exc}")
-        await asyncio.sleep(30)
+        await asyncio.sleep(25)
 
 
 async def meme_update_loop():
