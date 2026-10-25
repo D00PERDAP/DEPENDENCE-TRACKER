@@ -43,9 +43,21 @@ async def synthesize_voice(text, output):
         raise RuntimeError("Не установлен edge-tts. Обнови зависимости.") from exc
 
     mp3 = output.with_suffix(".mp3")
-    await edge_tts.Communicate(
-        text, voice=VOICE_NAME, rate=VOICE_RATE, pitch=VOICE_PITCH
-    ).save(str(mp3))
+    try:
+        await asyncio.wait_for(
+            edge_tts.Communicate(
+                text, voice=VOICE_NAME, rate=VOICE_RATE, pitch=VOICE_PITCH
+            ).save(str(mp3)), timeout=45,
+        )
+    except asyncio.TimeoutError as exc:
+        raise RuntimeError("Сервис синтеза речи не ответил за 45 секунд.") from exc
+    except Exception as exc:
+        raise RuntimeError(
+            f"Сервис синтеза не ответил ({type(exc).__name__}). "
+            "Проверь сеть VPS и версию edge-tts."
+        ) from exc
+    if not mp3.exists() or mp3.stat().st_size == 0:
+        raise RuntimeError("Синтез речи вернул пустой аудиофайл.")
     proc = await asyncio.create_subprocess_exec(
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
         "-y", "-i", str(mp3), "-vn", "-ac", "1",
@@ -55,7 +67,7 @@ async def synthesize_voice(text, output):
     _, err = await proc.communicate()
     if proc.returncode != 0 or not output.is_file() or not output.stat().st_size:
         logger.warning("Voice transcoding failed: %s", err[:300] if err else proc.returncode)
-        raise RuntimeError("Не удалось сделать голосовое из текста.")
+        raise RuntimeError("ffmpeg не смог преобразовать аудио в OGG/Opus.")
 
 
 def install(dp, *, is_admin, connect, render_text, log):
@@ -89,7 +101,7 @@ def install(dp, *, is_admin, connect, render_text, log):
         except Exception:
             pass
         try:
-            await m.answer("🎙 Мага записывает салам, брат…")
+            status = await m.answer("🎙 Мага записывает салам, брат…")
             with tempfile.TemporaryDirectory(prefix="maga_tts_") as work:
                 path = Path(work) / "maga.ogg"
                 await synthesize_voice(body, path)
@@ -109,11 +121,20 @@ def install(dp, *, is_admin, connect, render_text, log):
                 maga_voice_preview_id=preview.message_id,
             )
             await state.set_state(VoiceFlow.confirm)
+            try:
+                await status.delete()
+            except Exception:
+                pass
         except Exception as exc:
-            logger.warning("Voice preview failure %s: %s", type(exc).__name__, exc)
-            await m.answer("❌ Брат, голос не получился. "
-                           "Проверь edge-tts, ffmpeg и доступ сервера к сервису речи. "
-                           "Напиши текст ещё раз.")
+            logger.exception("Voice preview failed")
+            message = str(exc)
+            if not isinstance(exc, RuntimeError):
+                message = ("Не удалось отправить предпросмотр в Telegram "
+                           f"({type(exc).__name__}). Проверь журнал.")
+            await m.answer(
+                f"❌ Брат, голос не получился.\n\nПричина: {message}\n\n"
+                "Напиши текст ещё раз, вацок."
+            )
             await state.set_state(VoiceFlow.text)
 
     @dp.callback_query(F.data == "ac:voicesend")
