@@ -13,7 +13,7 @@ class VoiceBroadcastTests(unittest.TestCase):
         source = Path(voice_broadcast.__file__).read_text(encoding="utf-8")
         self.assertIn('"-c:a", "libopus"', source)
         self.assertIn('FSInputFile(path)', source)
-        self.assertIn("await m.bot.send_voice", source)
+        self.assertIn("await ui_manager.render_voice", source)
         self.assertIn('q.bot.send_voice(', source)
 
     def test_long_message_split_for_speech(self):
