@@ -49,6 +49,13 @@ class InternetTemplateTests(unittest.TestCase):
         another=real_memes.compose(raw,"Я: ПОШАЛИМ?","ТЕЛЕФОН: НЕТ",21)
         self.assertNotEqual(result,another)
 
+    def test_premium_search_never_bills_without_explicit_toggle(self):
+        with patch.dict("os.environ",{"IMGFLIP_API_KEY":"demo-key",
+                                      "MEME_PREMIUM_SEARCH":"0"}):
+            with patch.object(real_memes,"_json_url") as requests:
+                self.assertEqual(real_memes._premium_templates(None),[])
+                requests.assert_not_called()
+
     def test_paid_ai_image_generation_explicit_optin_only(self):
         with patch.dict("os.environ",{"OPENAI_API_KEY":"demo-but-unused","MEME_AI_ENABLED":"0"}):
             self.assertFalse(real_memes._budget(None))
@@ -90,10 +97,11 @@ class PhotoSendTests(unittest.IsolatedAsyncioTestCase):
     async def test_two_requests_use_real_photo_and_distinct_russian_caption(self):
         msg=type("FakeMessage",(),{"answer_photo":AsyncMock(),"answer":AsyncMock()})()
         with patch.object(real_memes,"_top_templates",return_value=self.templates):
-            with patch.object(real_memes,"_source_bytes",return_value=self.photo):
-                with patch.object(real_memes,"_budget",return_value=False):
-                    self.assertTrue(await real_memes.send(msg,1357,"Мефедрон","ex",bot.connect))
-                    self.assertTrue(await real_memes.send(msg,1357,"Мефедрон","ex",bot.connect))
+            with patch.object(real_memes,"_premium_templates",return_value=[]):
+                with patch.object(real_memes,"_source_bytes",return_value=self.photo):
+                    with patch.object(real_memes,"_budget",return_value=False):
+                        self.assertTrue(await real_memes.send(msg,1357,"Мефедрон","ex",bot.connect))
+                        self.assertTrue(await real_memes.send(msg,1357,"Мефедрон","ex",bot.connect))
         self.assertEqual(msg.answer_photo.await_count,2)
         snapshots=[]
         for call in msg.answer_photo.await_args_list:
@@ -112,8 +120,9 @@ class PhotoSendTests(unittest.IsolatedAsyncioTestCase):
         msg=type("FakeMessage",(),{"answer_photo":AsyncMock(),"answer":AsyncMock()})()
         with patch.object(real_memes,"_curated_templates",return_value=[]):
             with patch.object(real_memes,"_top_templates",side_effect=OSError("Network down")):
-                with patch.object(real_memes,"_budget",return_value=False):
-                    result=await real_memes.send(msg,222,"Мефедрон","more",bot.connect)
+                with patch.object(real_memes,"_premium_templates",return_value=[]):
+                    with patch.object(real_memes,"_budget",return_value=False):
+                        result=await real_memes.send(msg,222,"Мефедрон","more",bot.connect)
         self.assertFalse(result)
         msg.answer_photo.assert_not_awaited()
         msg.answer.assert_awaited_once()
