@@ -658,11 +658,20 @@ async def reminder_loop(bot):
                         path = context_memes.choose_photo(
                             session["substance"], risk, connect, uid, meme_key)
                     if path is None:
-                        raise RuntimeError("Picture meme library is empty")
-                    await bot.send_photo(uid, FSInputFile(path),
-                                         caption=caption[:1024],
-                                         reply_markup=keyboard)
-                    record_meme(uid, path)
+                        from aiogram.types import BufferedInputFile
+                        from photo_memes import inline_picture
+                        # The process may be unable to write pictures to disk.
+                        # An in-memory JPEG still guarantees photo reminders.
+                        data = await asyncio.to_thread(inline_picture,
+                                                       session["substance"], risk)
+                        await bot.send_photo(uid,
+                            BufferedInputFile(data, filename="reminder-meme.jpg"),
+                            caption=caption[:1024], reply_markup=keyboard)
+                    else:
+                        await bot.send_photo(uid, FSInputFile(path),
+                                             caption=caption[:1024],
+                                             reply_markup=keyboard)
+                        record_meme(uid, path)
                 except Exception as exc:
                     # Leave an audit trail and try again in one minute, rather
                     # than advancing the timer without delivering anything.
@@ -788,6 +797,14 @@ async def main():
         print(f"Picture memes ready at startup: {len(ready)}", flush=True)
     except Exception as exc:
         print(f"Picture meme bootstrap failed: {type(exc).__name__}: {exc}", flush=True)
+        # A disk write failure is no longer fatal: try in-memory JPEG.
+        try:
+            from photo_memes import inline_picture
+            data = await asyncio.to_thread(inline_picture, "Мефедрон", "more")
+            print(f"Memory-only picture fallback ready: {len(data)} bytes", flush=True)
+        except Exception as fallback_exc:
+            print(f"CRITICAL: Image rendering unavailable: "
+                  f"{type(fallback_exc).__name__}: {fallback_exc}", flush=True)
     if os.getenv("MEME_LEGACY_CARDS", "0") == "1":
         try:
             await asyncio.to_thread(ensure_catalog, limit=16)
