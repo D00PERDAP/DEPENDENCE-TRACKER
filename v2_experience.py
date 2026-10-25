@@ -578,8 +578,6 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 except (TypeError, ValueError):
                     status = "⚠️ Ошибка расписания. Включи 10 минут заново."
             rows = [
-                [("🔔 Запустить 10 минут", "v2:activate10"),
-                 ("📸 Тестовый мем", "v2:photo_test")],
                 [("10 минут", "v2:setfreq:10"), ("15 минут", "v2:setfreq:15")],
                 [("30 минут", "v2:setfreq:30"), ("60 минут", "v2:setfreq:60")],
                 [("🔔 Включить" if settings["quiet"] else "⏸ Выключить",
