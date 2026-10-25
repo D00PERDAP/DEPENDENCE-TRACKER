@@ -1,4 +1,4 @@
-name: Python meme engine tests
+name: Telegram bot v2 and meme pipeline tests
 on:
   push:
     branches:
@@ -19,7 +19,7 @@ jobs:
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt
       - name: Compile all code
-        run: python -m compileall -q bot.py meme_studio.py meme_ai.py meme_vision.py meme_harvester.py meme_review_store.py meme_collector.py
+        run: python -m compileall -q bot.py v2_experience.py v2_data.py harm_reduction.py stats_dashboard.py context_memes.py meme_studio.py meme_ai.py meme_vision.py meme_harvester.py meme_review_store.py meme_collector.py
       - name: Run complete test suite
         run: python -m unittest discover -s tests -v
       - name: Render 16 original meme images
