@@ -99,6 +99,22 @@ class BankTests(unittest.TestCase):
                           (first["id"][9:17]+"%",)).fetchone()
             self.assertEqual(tuple(one),("angry","manual"))
 
+    def test_real_photo_scene_matches_a_specific_joke(self):
+        phone=self.root/"phone"/"screen.jpg"
+        kitchen=self.root/"kitchen"/"stream.jpg"
+        create_frame(phone,141)
+        create_frame(kitchen,142)
+        bank.import_media(phone,person="Человек у телефона",
+                          confirm_rights=True,min_distance=0)
+        bank.import_media(kitchen,person="Человек на кухне",
+                          confirm_rights=True,min_distance=0)
+        self.assertEqual(bank.templates("general",limit=2,
+                                        desired_scenes=("phone",))[0]["name"],
+                         "Человек у телефона")
+        self.assertEqual(bank.templates("general",limit=2,
+                                        desired_scenes=("kitchen",))[0]["name"],
+                         "Человек на кухне")
+
     def test_vision_disabled_never_calls_external_api(self):
         photo=self.root/"frame.jpg"
         create_frame(photo,200)
