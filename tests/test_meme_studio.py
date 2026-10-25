@@ -58,6 +58,14 @@ class StoreTests(unittest.TestCase):
             self.assertEqual([x["id"] for x in store.read(index)], [1, 2])
             self.assertEqual(len(json.loads(index.read_text(encoding="utf-8"))), 2)
 
+    def test_legacy_literal_backslash_newline_recovered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            index = Path(tmp) / "review.json"
+            index.write_text('[{"id": 8}]\\n', encoding="utf-8")
+            self.assertEqual(store.read(index)[0]["id"], 8)
+            store.transact(lambda rows: rows.append({"id": 9}), index)
+            self.assertEqual([x["id"] for x in store.read(index)], [8, 9])
+
     def test_corrupted_file_not_overwritten(self):
         with tempfile.TemporaryDirectory() as tmp:
             index = Path(tmp) / "review.json"
