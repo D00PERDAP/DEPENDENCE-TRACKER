@@ -115,17 +115,23 @@ async def followup_loop(bot, connect, kb):
     while True:
         try:
             for item in db.claim_due_followups(connect):
-                text = ("⏳ Десять минут прошло. Как сейчас? Желание действовать сразу стало слабее?"
-                        if item["kind"] == "urge" else
-                        "🫀 Проверка через 10 минут. Тебе лучше? При опасных симптомах не жди ответа бота — вызывай скорую.")
+                text = (
+                    "☀️ Как ты после сессии? Получилось отдохнуть? Было что-то, о чём жалеешь?\n"
+                    "Отметь самочувствие — всё останется в личной статистике."
+                    if item["kind"] == "after" else
+                    "⏳ Десять минут прошло. Как сейчас? Желание действовать сразу стало слабее?"
+                    if item["kind"] == "urge" else
+                    "🫀 Проверка через 10 минут. Тебе лучше? При опасных симптомах не жди ответа бота — вызывай скорую."
+                )
                 try:
-                    await bot.send_message(
-                        item["user_id"], text,
-                        reply_markup=kb([
-                            [("✅ Стало лучше", "v2:better"), ("😣 Всё ещё тяжело", "v2:impulses")],
-                            [("🆘 Нужна помощь", "v2:safety")],
-                        ]),
-                    )
+                    markup = ([
+                        [("✅ Обошлось", "v2:post:good"), ("😕 Было тяжело", "v2:post:hard")],
+                        [("📊 Отчёт", "v2:stats"), ("🆘 Мне плохо", "v2:safety")],
+                    ] if item["kind"] == "after" else [
+                        [("✅ Стало лучше", "v2:better"), ("😣 Всё ещё тяжело", "v2:impulses")],
+                        [("🆘 Нужна помощь", "v2:safety")],
+                    ])
+                    await bot.send_message(item["user_id"], text, reply_markup=kb(markup))
                 except Exception as exc:
                     print(f"Followup delivery: {type(exc).__name__}")
         except Exception as exc:
@@ -415,12 +421,14 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                                [[("⚙️ Настроить", "v2:settings"), ("🏠 Меню", "v2:home")]])
 
         if action == "wait":
-            kind = param if param in ("urge", "wellbeing") else "urge"
+            kind = param if param in ("urge", "wellbeing", "after") else "urge"
+            delay = 480 if kind == "after" else 10
             with connect() as c:
-                db.schedule_followup(c, uid, kind, 10, now())
+                db.schedule_followup(c, uid, kind, delay, now())
             return await panel(q,
-                "⏳ Напишу через 10 минут, чтобы проверить состояние.\n"
-                "Если становится физически хуже — не жди уведомления, обращайся за помощью.", [
+                ("☀️ Напомню проверить себя примерно через 8 часов." if kind == "after" else
+                 "⏳ Напишу через 10 минут, чтобы проверить состояние.\n"
+                 "Если становится физически хуже — не жди уведомления, обращайся за помощью."), [
                     [("✅ Передумал", "v2:better"), ("🆘 Мне плохо", "v2:safety")],
                     [("🏠 Меню", "v2:home")],
                 ])
@@ -546,6 +554,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             return await panel(q, "⏹ Сопровождение завершено.\n\n"
                                "Как всё прошло? Можно просто выбрать вариант.", [
                 [("✅ Обошлось", "v2:post:good"), ("😕 Было тяжело", "v2:post:hard")],
+                [("☀️ Спроси через 8 часов", "v2:wait:after")],
                 [("📊 Отчёт", "v2:stats"), ("🏠 Меню", "v2:home")],
             ])
 
