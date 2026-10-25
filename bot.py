@@ -20,6 +20,8 @@ import context_memes
 import meme_engine
 import real_memes
 import mellstroy_bank
+import reaction_bank
+import joke_catalog
 import v2_data
 import v2_experience
 
@@ -258,6 +260,148 @@ async def meme_vote(q: CallbackQuery):
                      ON CONFLICT(user_id,meme_key) DO UPDATE SET vote=excluded.vote""",
                   (q.from_user.id, key, vote))
     await q.answer("😂 Учту!" if vote == 1 else "🥱 Учту, покажу другое!")
+
+
+@dp.message(Command("memes"))
+async def memes_library_status(m: Message):
+    if not is_meme_admin(m.from_user):
+        return
+    data = await asyncio.to_thread(reaction_bank.status)
+    old = mellstroy_bank.status()["count"]
+    people = ", ".join(f"{name}: {count}" for name,count in
+                       list(data["people"].items())[:8])
+    mood_text = ", ".join(f"{m}: {n}" for m,n in data["moods"].items())
+    await m.answer(
+        f"📸 БИБЛИОТЕКА ФОТО\n\n"
+        f"Люди и реакции: {data['count']} кадров (без лимита)\n"
+        f"Старая библиотека Меллстроя: {old}\n"
+        f"Коллекции: {people or 'пока нет'}\n"
+        f"Метки: {mood_text or 'пока нет'}\n"
+        f"Автоматическое распознавание: "
+        f"{'включено' if data['vision_enabled'] else 'выключено'}\n"
+        f"Однофразовых шуток: {joke_catalog.count()}\n\n"
+        "Фото/видео с подписью /memes_add YES Имя laugh\n"
+        "Или /memes_add YES Имя для автоматической разметки.\n"
+        "Другие команды: /memes_preview, /memes_tag, /memes_vision"
+    )
+
+
+@dp.message(Command("memes_preview"))
+async def memes_preview(m: Message):
+    if not is_meme_admin(m.from_user):
+        return
+    from aiogram.types import FSInputFile
+    photos = await asyncio.to_thread(reaction_bank.sample, 4)
+    if not photos:
+        return await m.answer("📷 Библиотека пустая. Пришли фото с подписью "
+                              "/memes_add YES Имя")
+    for item in photos:
+        await m.answer_photo(
+            FSInputFile(item["path"]),
+            caption=f"Реальный кадр: {item['name']}\n"
+                    f"Метка: {item['mood']}\n"
+                    f"ID: {item['id'][9:]} (исправить: /memes_tag ID shock)")
+
+
+@dp.message(Command("memes_tag"))
+async def memes_retag_one(m: Message):
+    if not is_meme_admin(m.from_user):
+        return
+    chunks=(m.text or "").split()
+    if len(chunks)!=3:
+        return await m.answer("Формат: /memes_tag ID laugh\n"
+                              "Метки: shock laugh yell smug confused tired "
+                              "suspicious angry sad neutral")
+    try:
+        await asyncio.to_thread(reaction_bank.retag_frame,chunks[1],chunks[2])
+        await m.answer(f"✅ Кадр {chunks[1]} теперь помечен как {chunks[2]}.")
+    except ValueError as exc:
+        await m.answer(f"Ошибка разметки: {exc}")
+
+
+@dp.message(Command("memes_vision"))
+async def memes_auto_retag(m: Message):
+    if not is_meme_admin(m.from_user):
+        return
+    if os.getenv("REACTION_VISION_ENABLED","0")!="1":
+        return await m.answer("Авторазметка по изображению не включена. "
+                              "В .env нужны REACTION_VISION_ENABLED=1 и "
+                              "OPENAI_API_KEY. Анализ оплачивается отдельно.")
+    await m.answer("🔍 Проверяю изображения моделью по очереди. "
+                   "Исправить результат можно через /memes_tag.")
+    result = await asyncio.to_thread(reaction_bank.auto_retag, 12)
+    await m.answer(f"✅ Проанализировано: {result.get('tagged',0)}\n"
+                   "Следующие 12: /memes_vision")
+
+
+@dp.message(F.photo, F.caption.startswith("/memes_add"))
+@dp.message(F.video, F.caption.startswith("/memes_add"))
+@dp.message(F.document, F.caption.startswith("/memes_add"))
+async def memes_upload(m: Message):
+    """Admin-only upload of photos or videos of ANY owner-labeled person.
+
+    No hard frame quota. Telegram-hosted Bot API downloads are capped at 20 MB;
+    larger rights-cleared videos can be transferred straight to VPS.
+    """
+    if not is_meme_admin(m.from_user):
+        return
+    import shlex
+    try:
+        pieces = shlex.split(m.caption or "")
+    except ValueError:
+        return await m.answer("Проверь кавычки в подписи: "
+                              "/memes_add YES «Имя» laugh")
+    if len(pieces)<2 or pieces[0]!="/memes_add" or pieces[1]!="YES":
+        return await m.answer("Подпись: /memes_add YES Имя laugh\n"
+                              "YES означает, что у тебя есть право "
+                              "использовать загружаемые фотографии/видео.")
+    opts = pieces[2:]
+    mood = "auto"
+    if opts and opts[-1] in reaction_bank.MOODS:
+        mood = opts.pop()
+    person = " ".join(opts).strip() or "без имени"
+
+    file = m.photo[-1] if m.photo else m.video or m.document
+    if not file:
+        return
+    file_size=getattr(file,"file_size",0) or 0
+    if file_size > 19_000_000:
+        return await m.answer("Этот файл слишком большой для стандартного "
+                              "Telegram Bot API (максимум загрузки ботом ~20 МБ). "
+                              "Большой ролик можно импортировать на VPS.")
+    extension=(".jpg" if m.photo else
+               (".mp4" if m.video else
+                Path(getattr(m.document,"file_name","") or "").suffix.lower()))
+    if extension not in reaction_bank.PHOTOS|reaction_bank.VIDEOS:
+        return await m.answer("Пришли JPEG/PNG/WebP или MP4/MOV/MKV/WEBM.")
+    progress=await m.answer("📥 Получил, проверяю кадры и убираю дубли...")
+    with tempfile.TemporaryDirectory(prefix="reaction_upload_") as tmp:
+        source=Path(tmp)/("input"+extension)
+        try:
+            await m.bot.download(file.file_id,destination=source)
+            result=await asyncio.to_thread(
+                reaction_bank.import_media,source,
+                person=person,mood=mood,confirm_rights=True,
+                credit=f"Authorized Telegram admin upload for {person}")
+            errors="\n".join(result["errors"][:2])
+            vision=("Метки по фото" if mood=="auto" and
+                    os.getenv("REACTION_VISION_ENABLED","0")=="1"
+                    else "Метка из подписи/имени")
+            await progress.edit_text(
+                f"✅ Коллекция: {result['person']}\n"
+                f"Новых кадров: {result['added']}\n"
+                f"Всего в медиатеке: {result['total']} (без лимита)\n"
+                f"Дублей: {result['duplicates']}, отсеяно: {result['rejected']}\n"
+                f"Разметка: {vision}\n"
+                f"{('Предупреждения: '+errors) if errors else ''}\n"
+                "Посмотреть: /memes_preview\n"
+                "Исправить метку: /memes_tag ID laugh")
+        except Exception as exc:
+            print(f"Reaction import failed: {type(exc).__name__}: "
+                  f"{str(exc)[:180]}",flush=True)
+            await progress.edit_text(
+                "❌ Не смог обработать материал. Проверь место на диске, "
+                "ffmpeg и журнал сервиса.")
 
 
 def is_meme_admin(user):
@@ -676,6 +820,7 @@ async def delete_yes(q: CallbackQuery):
         c.execute("DELETE FROM meme_dynamic_history WHERE user_id=?", (uid,))
         c.execute("DELETE FROM meme_dynamic_counter WHERE user_id=?", (uid,))
         c.execute("DELETE FROM real_meme_sent WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM joke_sent WHERE user_id=?", (uid,))
         v2_data.erase_user(c, uid)
     await q.answer("Удалено")
     await display(q.message, "История удалена из активной базы. Резервные копии на сервере удаляются отдельно.", kb([[("🏠 Меню", "home")]]))
