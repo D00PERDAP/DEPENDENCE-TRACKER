@@ -222,15 +222,24 @@ async def send(message, uid, substance, risk, connect, meme_key, record_meme, me
     options = candidates(substance, risk)
     if not options:
         # First-run offline pack requires no network and is safe to generate lazily.
-        await asyncio.to_thread(ensure_pack)
+        try:
+            await asyncio.to_thread(ensure_pack)
+        except Exception as exc:
+            print(f"Picture meme generation error: {type(exc).__name__}: {exc}", flush=True)
     chosen = choose_photo(substance, risk, connect, uid, meme_key)
     if chosen is None:
         # Can't call a text joke a picture meme. Do not fabricate success.
         await message.answer("Не могу показать картинку: библиотека изображений пока недоступна. "
                              "Попробуй ещё раз или сообщи администратору.")
         return False
-    await message.answer_photo(FSInputFile(chosen),
-        caption="🎭 Мем • не делай глупостей",
-        reply_markup=meme_buttons(chosen))
+    try:
+        await message.answer_photo(FSInputFile(chosen),
+            caption="🎭 Мем • не делай глупостей",
+            reply_markup=meme_buttons(chosen))
+    except Exception as exc:
+        print(f"Picture meme Telegram delivery error: {type(exc).__name__}: {exc}", flush=True)
+        await message.answer("Не удалось отправить картинку в Telegram. "
+                             "Попробуй кнопку «Мем» ещё раз.")
+        return False
     record_meme(uid, chosen)
     return True
