@@ -116,7 +116,8 @@ async def display(message, text, markup):
 
 def home_buttons(running=False):
     rows = [
-        [("🔥 Останови меня", "v2:impulses"), ("🆘 Мне плохо", "v2:safety")],
+        [("🫀 Как я?", "v2:checkin"), ("🆘 Мне плохо", "v2:safety")],
+        [("🔥 Останови меня", "v2:impulses")],
         [("☑️ Мои запреты", "check"), ("🎭 Мем", "v2:meme")],
         [("📊 Моя статистика", "v2:stats"), ("❓ Вопросы", "v2:faq")],
         [("⚙️ Напоминания", "v2:settings")],
