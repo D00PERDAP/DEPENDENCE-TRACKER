@@ -141,19 +141,26 @@ async def display(message, text, markup):
 
 
 def home_buttons(running=False):
-    # 5 clear choices first, many targeted buttons only when entering a section.
+    # One compact dashboard; secondary features stay inside their sections.
     rows = [
-        [("😂 ДАЙ МЕМ", "v2:meme")],
-        [("🔥 Меня несёт", "v2:impulses"), ("🫀 Как я?", "v2:checkin")],
-        [("🔔 Напоминания", "v2:settings"), ("🆘 Мне плохо", "v2:safety")],
-        [("☑️ Мои запреты", "check"), ("📊 Статистика", "v2:stats")],
-        [("❓ Помощь и вопросы", "v2:faq")],
+        [("😂 Мем", "v2:meme"), ("🔥 Стоп", "v2:impulses")],
+        [("🫀 Состояние", "v2:checkin"), ("🆘 Помощь", "v2:safety")],
+        [("⚙️ Моё", "ui:mine")],
     ]
-    if running:
-        rows.append([("⏹ Завершить сопровождение", "v2:finish")])
-    else:
-        rows.insert(1, [("▶️ Начать сопровождение", "v2:start")])
+    rows.insert(0, [("⏹ Завершить", "v2:finish")] if running
+                else [("▶️ Начать", "v2:start")])
     return kb(rows)
+
+
+@dp.callback_query(F.data == "ui:mine")
+async def mine_menu(q: CallbackQuery):
+    await q.answer()
+    await display(q.message, "⚙️ МОЁ\\n\\nНастройки и личные данные.", kb([
+        [("🔔 Напоминания", "v2:settings"), ("☑️ Запреты", "check")],
+        [("📊 Статистика", "v2:stats"), ("🎯 Темы мемов", "v2:memethemes")],
+        [("🗑 Мои данные", "delete_ask")],
+        [("⬅️ Главное", "v2:home")],
+    ]))
 
 
 async def home(message, uid):
@@ -1053,9 +1060,7 @@ async def main():
         await bot.set_my_commands([
             BotCommand(command="start", description="🏠 Главное меню"),
             BotCommand(command="meme", description="😂 Новый фотомем"),
-            BotCommand(command="reminders", description="🔔 Напоминания"),
-            BotCommand(command="helpme", description="🆘 Мне плохо"),
-            BotCommand(command="stats", description="📊 Статистика"),
+            BotCommand(command="helpme", description="🆘 Срочная помощь"),
         ])
     except Exception as exc:
         print(f"Telegram command menu update failed: {type(exc).__name__}", flush=True)
