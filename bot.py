@@ -654,7 +654,11 @@ async def reminder_loop(bot):
                     path = context_memes.choose_photo(
                         session["substance"], risk, connect, uid, meme_key)
                     if path is None:
-                        await asyncio.to_thread(ensure_pack)
+                        try:
+                            await asyncio.to_thread(ensure_pack)
+                        except Exception as exc:
+                            print(f"Reminder disk meme generation failed: "
+                                  f"{type(exc).__name__}: {exc}", flush=True)
                         path = context_memes.choose_photo(
                             session["substance"], risk, connect, uid, meme_key)
                     if path is None:
