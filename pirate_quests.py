@@ -236,7 +236,7 @@ def install(dp):
         except ValueError:return
         with db() as c:
             row=c.execute("SELECT * FROM treasures WHERE id=? AND user_id=?",(tid,q.from_user.id)).fetchone()
-        if not row:return await q.answer("Сокровище не найдено.",show_alert=True)
+        if not row:return await q.answer("Э, брат, такой точки нет.",show_alert=True)
         from admin_center import db as admin_db
         with admin_db() as ac:
             if ac.execute("SELECT 1 FROM hidden_treasures WHERE treasure_id=?", (tid,)).fetchone():
