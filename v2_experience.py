@@ -6,6 +6,8 @@ existing SQLite sessions remain compatible.
 from __future__ import annotations
 
 import asyncio
+import io
+import os
 import random
 from datetime import timedelta
 
@@ -145,6 +147,49 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             print(f"Stats chart rendering problem: {type(exc).__name__}: {exc}")
             await message.answer(stats_dashboard.summary_caption(data) +
                                  "\n\nНе удалось построить изображение. Проверь шрифты и Pillow на сервере.")
+
+    @dp.message(Command("addmeme"))
+    async def add_meme_help(message):
+        admins = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
+        if not message.from_user or message.from_user.id not in admins:
+            return
+        await message.answer("🎭 ДОБАВИТЬ СВОЙ МЕМ\n\n"
+                             "Отправь фото с подписью, например:\n"
+                             "/addmeme meph ex YES\n\n"
+                             "meph — вещество, ex — ситуация, YES — ты подтверждаешь, "
+                             "что имеешь право распространять изображение.\n"
+                             "Допустимые темы: meph, alpha, stimulant, mdma, weed, alcohol, "
+                             "ketamine, opioid, sedative, psychedelic, general.\n"
+                             "Ситуации: more, ex, contacts, money, travel, paranoia, "
+                             "sleep, check, general, after, ok.")
+
+    @dp.message(F.photo, F.caption.startswith("/addmeme"))
+    async def add_meme_photo(message):
+        admins = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
+        if not message.from_user or message.from_user.id not in admins:
+            return
+        parts = (message.caption or "").split()
+        if len(parts) != 4 or parts[0] != "/addmeme" or parts[3] != "YES":
+            return await message.answer(
+                "Формат подписи: /addmeme meph ex YES\n"
+                "YES означает, что ты проверил мем и имеешь право его распространять.")
+        photo = message.photo[-1]
+        if photo.file_size and photo.file_size > 8_000_000:
+            return await message.answer("Фото слишком большое (максимум 8 МБ).")
+        buffer = io.BytesIO()
+        try:
+            await message.bot.download(photo, destination=buffer)
+            target = await asyncio.to_thread(
+                context_memes.import_admin_photo,
+                buffer.getvalue(), parts[1], parts[2], message.from_user.id,
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            return await message.answer(f"Не получилось добавить: {type(exc).__name__}. Проверь теги и фото.")
+        await message.answer(
+            f"✅ Мем добавлен: {parts[1]} / {parts[2]}.\n"
+            "Теперь при таком сценарии он может прийти пользователю.",
+            reply_markup=kb([[("🎭 Проверить", "v2:meme")]]),
+        )
 
     @dp.message(Command("stats"))
     async def stats_command(message):
