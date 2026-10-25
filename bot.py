@@ -8,8 +8,9 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile
 from dotenv import load_dotenv
+from meme_cards import card
 from memes import streak_caption, session_caption, completed_goal_caption, ended_session_caption
 
 load_dotenv()
@@ -43,7 +44,7 @@ def keyboard(rows):
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t, callback_data=v) for t,v in row] for row in rows])
 
 def main_kb():
-    return keyboard([[('💊 Вещество','substances'),('📝 Сессия','session')], [('🎯 Цели','goals'),('📊 Статистика','stats')], [('🛟 Безопасность','safety'),('⚙️ Настройки','settings')]])
+    return keyboard([[('💊 Вещество','substances'),('📝 Сессия','session')], [('🎯 Цели','goals'),('📊 Статистика','stats')], [('🖼 Мем-картинка','meme')], [('🛟 Безопасность','safety'),('⚙️ Настройки','settings')]])
 
 def active(c, uid):
     return c.execute('SELECT * FROM sessions WHERE user_id=? AND ended IS NULL ORDER BY id DESC LIMIT 1', (uid,)).fetchone()
@@ -84,6 +85,25 @@ async def start(m:Message):
 async def back(q:CallbackQuery):
     await q.answer()
     await home(q.message,q.from_user.id)
+
+@bot_dp.callback_query(F.data == 'meme')
+async def meme(q:CallbackQuery):
+    with conn() as c:
+        last = c.execute('SELECT substance, started FROM sessions WHERE user_id=? ORDER BY started DESC LIMIT 1', (q.from_user.id,)).fetchone()
+    if not last:
+        await q.answer('Сначала добавь сессию в журнал', show_alert=True)
+        return
+    days = max(0, int((datetime.now(timezone.utc) - datetime.fromisoformat(last['started'])).total_seconds() // 86400))
+    try:
+        picture = await asyncio.to_thread(card, days, last['substance'], days)
+        await q.message.answer_photo(
+            BufferedInputFile(picture, filename='meme.png'),
+            caption='🗿 Мем по журналу. Счётчик от последней записи, а не подтверждение трезвости.',
+            reply_markup=keyboard([[('🎲 Ещё мем','meme')], [('⬅️ Меню','home')]])
+        )
+        await q.answer()
+    except Exception:
+        await q.answer('Не удалось создать картинку. Проверь Pillow и шрифты.', show_alert=True)
 
 @bot_dp.callback_query(F.data == 'substances')
 async def substances(q:CallbackQuery):
