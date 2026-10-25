@@ -250,18 +250,29 @@ def install(dp):
     @dp.callback_query(F.data.startswith("pq:arrive:"))
     async def arrive(q:CallbackQuery,state:FSMContext):
         if not await guard(q,state):return
-        await q.answer("🚨 Королевский патруль приближается!")
-        try:
-            await q.message.edit_caption(caption="🚨 Патруль приближается! Подсказка исчезнет через минуту.")
-        except Exception:pass
+        await q.answer("🚨 Патруль приближается!")
         uid=q.from_user.id
+        old=GAME_TIMERS.pop(uid,None)
+        if old: old.cancel()
         await state.clear()
         async def expire():
             try:
-                await asyncio.sleep(60)
-                await clear_game(q.bot, uid)
+                # The original 60-second lifetime is unchanged.
+                # Keep the countdown on the same caption: no new chat messages.
+                remaining=60
+                for delay in (15,15,15,5,5,5):
+                    try:
+                        await q.message.edit_caption(
+                            caption=f"🚨 Патруль приближается!\n⏳ До удаления: {remaining} сек."
+                        )
+                    except Exception as exc:
+                        logger.debug("Countdown caption unavailable: %s",exc)
+                    await asyncio.sleep(delay)
+                    remaining-=delay
+                await clear_game(q.bot,uid)
+            except asyncio.CancelledError:
+                raise
             finally:
-                GAME_TIMERS.pop(uid, None)
-        old = GAME_TIMERS.pop(uid, None)
-        if old: old.cancel()
-        GAME_TIMERS[uid] = asyncio.create_task(expire())
+                if GAME_TIMERS.get(uid) is asyncio.current_task():
+                    GAME_TIMERS.pop(uid,None)
+        GAME_TIMERS[uid]=asyncio.create_task(expire())
