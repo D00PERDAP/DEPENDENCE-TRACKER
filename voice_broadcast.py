@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 from aiogram import F
+import ui_manager
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -342,7 +343,7 @@ def install(dp, *, is_admin, connect, render_text, log):
         except Exception:
             pass
         try:
-            status = await m.answer("🎙 Мага записывает салам, брат…")
+            await render_text(m, "🎙 Мага записывает салам, брат…", None)
             with tempfile.TemporaryDirectory(prefix="maga_tts_") as work:
                 path = Path(work) / "maga.ogg"
                 selected_voice = get_voice(m.from_user.id)
@@ -351,8 +352,8 @@ def install(dp, *, is_admin, connect, render_text, log):
                     await synthesize_voice(body, path, selected_speed)
                 else:
                     await synthesize_silero(body, path, selected_voice, selected_speed)
-                preview = await m.bot.send_voice(
-                    m.chat.id, FSInputFile(path),
+                preview = await ui_manager.render_voice(
+                    m, FSInputFile(path),
                     caption="🎙 МАГА | ПРОСЛУШКА\n\nЗацени, вацок. "
                             "Отправлять всем или ещё переделаем?",
                     reply_markup=keyboard([
@@ -369,19 +370,15 @@ def install(dp, *, is_admin, connect, render_text, log):
                 maga_voice_preview_id=preview.message_id,
             )
             await state.set_state(VoiceFlow.confirm)
-            try:
-                await status.delete()
-            except Exception:
-                pass
         except Exception as exc:
             logger.exception("Voice preview failed")
             message = str(exc)
             if not isinstance(exc, RuntimeError):
                 message = ("Не удалось отправить предпросмотр в Telegram "
                            f"({type(exc).__name__}). Проверь журнал.")
-            await m.answer(
+            await render_text(m,
                 f"❌ Брат, голос не получился.\n\nПричина: {message}\n\n"
-                "Напиши текст ещё раз, вацок."
+                "Напиши текст ещё раз, вацок.", None
             )
             await state.set_state(VoiceFlow.text)
 
