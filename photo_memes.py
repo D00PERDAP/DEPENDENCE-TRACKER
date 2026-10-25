@@ -271,6 +271,36 @@ def ensure_pack(media=ASSETS, limit=None):
     return done
 
 
+def inline_picture(substance, risk):
+    """Make a JPEG in memory if service cannot write to the assets directory.
+
+    Guarantees that an unavailable/unwritable disk library need not turn a meme
+    into plain text. No file writes, no network and no external credentials.
+    """
+    from context_memes import SUB_KEYS, RISK_KEYS
+    sub = SUB_KEYS.get(substance, "general")
+    risk = risk if risk in RISK_KEYS else "general"
+    exact = [(index, item) for index, item in enumerate(MEMES)
+             if item.sub == sub and item.risk == risk]
+    matched_risk = [(index, item) for index, item in enumerate(MEMES)
+                    if item.sub == "general" and item.risk == risk]
+    matched_sub = [(index, item) for index, item in enumerate(MEMES)
+                   if item.sub == sub and item.risk == "general"]
+    general = [(index, item) for index, item in enumerate(MEMES)
+               if item.sub == "general" and item.risk == "general"]
+    options = exact or matched_risk or matched_sub or general
+    if not options:
+        raise RuntimeError("No visual memes configured")
+    index, item = random.choice(options)
+    image = cartoon(item.scene, index)
+    draw = ImageDraw.Draw(image)
+    _caption(draw, item.top, True)
+    _caption(draw, item.bottom, False)
+    output = io.BytesIO()
+    image.save(output, "JPEG", quality=83)
+    return output.getvalue()
+
+
 def _download_photo(key, cache=CACHE):
     if key not in PHOTO:
         return None
