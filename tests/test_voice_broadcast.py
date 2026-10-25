@@ -16,6 +16,25 @@ class VoiceBroadcastTests(unittest.TestCase):
         self.assertIn("await m.bot.send_voice", source)
         self.assertIn('q.bot.send_voice(', source)
 
+    def test_long_message_split_for_speech(self):
+        text = ("Ассаламу алейкум, братья! Мага на связи. " * 17).strip()
+        chunks = voice_broadcast.split_voice_text(text)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(0 < len(chunk) <= 135 for chunk in chunks))
+        self.assertEqual(" ".join(chunks), text)
+
+    def test_long_sentence_split_and_empty_input(self):
+        chunks = voice_broadcast.split_voice_text("а" * 390)
+        self.assertEqual("".join(chunks), "а" * 390)
+        self.assertTrue(all(len(chunk) <= 135 for chunk in chunks))
+        self.assertEqual(voice_broadcast.split_voice_text("  "), [])
+
+    def test_retry_and_concat_are_used(self):
+        source = Path(voice_broadcast.__file__).read_text(encoding="utf-8")
+        self.assertIn("range(3)", source)
+        self.assertIn('"-f", "concat"', source)
+        self.assertIn("maga_part_", source)
+
     def test_broadcast_requires_preview_and_admin(self):
         source = Path(voice_broadcast.__file__).read_text(encoding="utf-8")
         self.assertIn('is_admin(q.from_user.id)', source)
