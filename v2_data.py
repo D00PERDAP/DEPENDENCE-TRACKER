@@ -66,6 +66,22 @@ def set_setting(c, uid, **values):
               (*values.values(), uid))
 
 
+def schedule_alert(c, uid, sid, minutes, now=None):
+    """Explicitly turn on reminders for this session; never a silent background opt-in."""
+    if minutes not in (10, 15, 30, 60):
+        raise ValueError("Invalid reminder interval")
+    due_at = stamp((now or now_utc()) + timedelta(minutes=minutes))
+    c.execute(
+        """INSERT INTO alerts(user_id,session_id,interval_min,next_at)
+           VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET
+           session_id=excluded.session_id,
+           interval_min=excluded.interval_min,
+           next_at=excluded.next_at""",
+        (uid, sid, minutes, due_at),
+    )
+    return due_at
+
+
 def active_minutes(settings, now=None):
     base = int(settings["base_interval"])
     if base not in (10, 15, 30, 60):
