@@ -1,6 +1,7 @@
 import asyncio
 import io
 import os
+import random
 import sqlite3
 from collections import Counter
 from datetime import datetime, timezone, timedelta
@@ -408,17 +409,33 @@ async def reminder_loop(bot):
         await asyncio.sleep(30)
 
 
+async def meme_update_loop():
+    """Discover candidates daily; do not publish unlicensed third-party images."""
+    if os.getenv("MEME_AUTO_DISCOVERY", "1") != "1":
+        return
+    await asyncio.sleep(60)
+    while True:
+        try:
+            from meme_harvester import run
+            await asyncio.to_thread(run)
+        except Exception as exc:
+            print(f"Meme discovery error: {type(exc).__name__}: {exc}")
+        await asyncio.sleep(24 * 3600)
+
+
 async def main():
     if not TOKEN or TOKEN == "put_your_token_here":
         raise RuntimeError("Set BOT_TOKEN in .env")
     init()
     bot = Bot(TOKEN)
     task = asyncio.create_task(reminder_loop(bot))
+    discovery_task = asyncio.create_task(meme_update_loop())
     try:
         await dp.start_polling(bot)
     finally:
         task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
+        discovery_task.cancel()
+        await asyncio.gather(task, discovery_task, return_exceptions=True)
 
 
 if __name__ == "__main__":
