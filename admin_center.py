@@ -41,10 +41,8 @@ class AdminFlow(StatesGroup):
     event_description = State()
 
 async def show(q, text, rows):
-    try:
-        await q.message.edit_text(text, reply_markup=kb(rows))
-    except Exception:
-        await q.message.answer(text, reply_markup=kb(rows))
+    import ui_manager
+    return await ui_manager.render_text(q.message, text, kb(rows))
 
 def install(dp, connect, is_admin, pirate):
     def allowed(uid):
