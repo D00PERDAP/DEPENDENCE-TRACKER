@@ -248,7 +248,7 @@ async def admin_panel(q: CallbackQuery):
         [("📁 Мемные сокровища", "admin:collections")],
         [("📸 Закинуть мем", "admin:media")],
         [("👥 Наши вацоки", "admin:users:0")],
-        [("🛠 Центр управления", "ac:menu")],
+        [("📂 Дополнительные инструменты", "ac:menu")],
         [("🔄 Освежить, жи есть", "admin:panel"), ("🚪 Уйти по-братски", "admin:logout")],
         [("🏠 На базу", "v2:home")],
     ]))
