@@ -136,7 +136,7 @@ def approve(number, filename, category):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["scan", "list", "approve", "reject"])
+    parser.add_argument("action", choices=["scan", "list", "approve", "reject", "clean-old"])
     parser.add_argument("id", nargs="?", type=int)
     parser.add_argument("image", nargs="?")
     parser.add_argument("--category", choices=sorted(CATEGORIES))
