@@ -142,7 +142,8 @@ async def followup_loop(bot, connect, kb):
 
 
 def install(dp, *, connect, active, picked, ensure_preset, kb, display,
-            now, stamp, meme_key, record_meme, meme_buttons, is_admin=lambda uid: False):
+            now, stamp, meme_key, record_meme, meme_buttons, is_admin=lambda uid: False,
+            home_screen=None):
     """Register handlers without importing bot.py again when launched as __main__."""
 
     def setup_state(c, uid):
@@ -254,24 +255,12 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
         await q.answer()
 
         if action == "home":
-            with connect() as c:
-                settings, session = setup_state(c, uid)
-                count = len(picked(c, uid))
-            text = ("💀 НЕ НАТВОРИ ДЕЛОВ 🦅\n\n"
-                    f"{'🔴 Сопровождение активно' if session else '⚪ Сессия не начата'}\n"
-                    f"Твоих запретов: {count}\n"
-                    f"Напоминания: {'не включены' if not session else '⏸ тишина' if settings['quiet'] else str(settings['base_interval']) + ' минут'}\n\n"
-                    "Что нужно прямо сейчас?")
-            rows = [
-                [("⏹ Закончить, брат" if session else "💀 Сопровождение", "v2:finish" if session else "v2:start")],
-                [("☑️ Моё слово", "check"), ("📊 Расклады Маги", "v2:stats")],
-                [("😂 Мемчик от Маги", "v2:meme"), ("🆘 Нужна помощь", "v2:safety")],
-                [("⚙️ Настройки", "ui:mine")],
-            ]
-            if is_admin(uid):
-                rows.append([("🛠 Штаб Маги", "admin:panel")])
-            await panel(q, text, rows)
-            return
+            # One home renderer for /start and all return buttons.
+            if home_screen is not None:
+                return await home_screen(q.message, uid)
+            return await panel(q, "🦅 Салам алейкум, брат!", [
+                [("💀 Сопровождение", "v2:start"), ("🆘 Помощь", "v2:safety")],
+            ])
 
         if action == "start":
             with connect() as c:
