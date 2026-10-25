@@ -11,3 +11,6 @@ data/
 backups/
 *.log
 .DS_Store
+
+# Locally generated original memes (regenerable; do not ignore approved uploads)
+assets/memes/**/original_*.jpg
