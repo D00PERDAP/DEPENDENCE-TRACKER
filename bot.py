@@ -234,6 +234,7 @@ async def admin_panel(q: CallbackQuery):
         users = c.execute("SELECT COUNT(*) FROM bot_user_profiles").fetchone()[0]
         admins = c.execute("SELECT COUNT(*) FROM bot_admins").fetchone()[0]
     await display(q.message, f"🛠 АДМИНКА\\n\\nПользователей: {users}\\nАдминов: {admins}", kb([
+        [("📁 Коллекции", "admin:collections")],
         [("📸 Добавить фото/видео", "admin:media")],
         [("🔄 Обновить", "admin:panel"), ("🚪 Выйти", "admin:logout")],
         [("🏠 Меню", "v2:home")],
@@ -248,13 +249,60 @@ async def admin_logout(q: CallbackQuery):
     await display(q.message, "Выход из админки.", kb([[("🏠 Меню", "v2:home")]]))
 
 
-@dp.callback_query(F.data == "admin:media")
-async def admin_media_prompt(q: CallbackQuery, state: FSMContext):
+@dp.callback_query(F.data == "admin:collections")
+async def admin_collections(q: CallbackQuery):
     await q.answer()
     if not is_meme_admin_id(q.from_user.id):
         return
+    try:
+        status = await asyncio.to_thread(reaction_bank.status)
+        people = status["people"]
+    except Exception as exc:
+        print(f"Admin collections: {exc}", flush=True)
+        people = {}
+    try:
+        old = await asyncio.to_thread(mellstroy_bank.status)
+        old_count = old["count"]
+    except Exception:
+        old_count = 0
+    # Old frames are a separate legacy bank; new uploads are grouped by person.
+    lines = [f"🎭 Меллстрой — {old_count + people.get('Меллстрой', 0)}",
+             f"📸 vjlink — {people.get('vjlink', 0)}"]
+    lines += [f"📁 {name} — {count}" for name, count in
+              sorted(people.items()) if name not in ("Меллстрой", "vjlink")]
+    await display(q.message, "📁 КОЛЛЕКЦИИ\\n\\n" + "\\n".join(lines), kb([
+        [("➕ Добавить фото", "admin:media")],
+        [("⬅️ Админка", "admin:panel")],
+    ]))
+
+
+@dp.callback_query(F.data == "admin:media")
+async def admin_media_prompt(q: CallbackQuery):
+    await q.answer()
+    if not is_meme_admin_id(q.from_user.id):
+        return
+    await display(q.message, "📸 КОМУ ДОБАВИТЬ ФОТО?\\n\\nВыбери коллекцию перед отправкой.", kb([
+        [("🎭 Меллстрой", "admin:person:mellstroy")],
+        [("📸 vjlink", "admin:person:vjlink")],
+        [("⬅️ Админка", "admin:panel")],
+    ]))
+
+
+@dp.callback_query(F.data.startswith("admin:person:"))
+async def admin_select_person(q: CallbackQuery, state: FSMContext):
+    await q.answer()
+    if not is_meme_admin_id(q.from_user.id):
+        return
+    slug = q.data.rsplit(":", 1)[-1]
+    people = {"mellstroy": "Меллстрой", "vjlink": "vjlink"}
+    person = people.get(slug)
+    if not person:
+        return
+    await state.update_data(person=person)
     await state.set_state(AdminAuth.media)
-    await display(q.message, "📸 Пришли фото или видео, на которое у тебя есть права. /start — отмена.", None)
+    await display(q.message, f"📸 Коллекция: {person}\\n\\nПришли фото или видео, на которое у тебя есть права. /start — отмена.", kb([
+        [("⬅️ Выбрать другого", "admin:media")],
+    ]))
 
 
 @dp.message(AdminAuth.media)
@@ -266,17 +314,26 @@ async def admin_media_upload(m: Message, state: FSMContext):
         return await m.answer("Отправь фото или видео.")
     if (media.file_size or 0) > 19_000_000:
         return await m.answer("Максимум 19 МБ.")
+    data = await state.get_data()
+    person = data.get("person")
+    if person not in ("Меллстрой", "vjlink"):
+        return await m.answer("Сначала выбери коллекцию в админке.")
     status = await m.answer("⏳ Добавляю...")
     try:
         with tempfile.TemporaryDirectory(prefix="admin_upload_") as tmp:
             path = Path(tmp) / ("source.jpg" if m.photo else "source.mp4")
             await m.bot.download(media.file_id, destination=path)
             result = await asyncio.to_thread(
-                reaction_bank.import_media, path, person="Админ",
-                mood="auto", confirm_rights=True, credit="Authorized admin upload")
-        await state.clear()
-        await status.edit_text(f"✅ Новых кадров: {result['added']}. Всего: {result['total']}.",
-                               reply_markup=kb([[("🛠 Админка", "admin:panel")]]))
+                reaction_bank.import_media, path, person=person,
+                mood="auto", confirm_rights=True, credit=f"Authorized admin upload: {person}")
+        await status.edit_text(
+            f"✅ {person}\\nНовых кадров: {result['added']}\\n"
+            f"Всего в медиатеке: {result['total']}\\nДубликатов: {result['duplicates']}",
+            reply_markup=kb([
+                [("➕ Ещё фото", "admin:person:" + ("mellstroy" if person == "Меллстрой" else "vjlink"))],
+                [("📁 Коллекции", "admin:collections")],
+                [("🛠 Админка", "admin:panel")],
+            ]))
         try:
             await m.delete()
         except Exception:
