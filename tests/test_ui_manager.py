@@ -27,6 +27,12 @@ class FakeBot:
         self.sends += 1
         return SimpleNamespace(message_id=self.next_id)
 
+    async def send_voice(self, chat_id, voice, caption, reply_markup=None):
+        self.next_id += 1
+        self.messages[self.next_id] = ("voice", caption)
+        self.sends += 1
+        return SimpleNamespace(message_id=self.next_id, voice=SimpleNamespace(file_id="fakevoice"))
+
     async def edit_message_text(self, chat_id, message_id, text, reply_markup=None):
         if message_id not in self.messages:
             from aiogram.exceptions import TelegramBadRequest
@@ -112,6 +118,26 @@ class ScreenTests(unittest.IsolatedAsyncioTestCase):
         await ui_manager.render_text(self.command, "Помощь")
         self.assertEqual(len(self.bot.messages), 1)
         self.assertEqual(self.bot.sends, 3)
+
+    async def test_voice_preview_is_one_screen_and_redo_replaces_it(self):
+        await ui_manager.render_text(self.command, "Меню")
+        preview = await ui_manager.render_voice(self.command, "file-id", "Прослушивание")
+        self.assertEqual(len(self.bot.messages), 1)
+        self.assertEqual(self.bot.messages[preview.message_id][0], "voice")
+        self.assertEqual(self.bot.sends, 2)
+        self.assertEqual(ui_manager._get(101)[0], preview.message_id)
+        await ui_manager.render_text(self.command, "Переделать текст")
+        self.assertEqual(len(self.bot.messages), 1)
+        self.assertEqual(list(self.bot.messages.values()), [("text", "Переделать текст")])
+        self.assertIn(preview.message_id, self.bot.deletes)
+
+    async def test_generating_new_preview_does_not_leave_an_old_one(self):
+        await ui_manager.render_text(self.command, "Генерируем")
+        first = await ui_manager.render_voice(self.command, "file-id-1", "Первое")
+        second = await ui_manager.render_voice(self.command, "file-id-2", "Второе")
+        self.assertEqual(len(self.bot.messages), 1)
+        self.assertNotEqual(first.message_id, second.message_id)
+        self.assertEqual(self.bot.messages[second.message_id], ("voice", "Второе"))
 
     async def test_deleted_screen_recovers(self):
         await ui_manager.render_text(self.command, "Главная")
