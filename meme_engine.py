@@ -10,6 +10,7 @@ different pictured issue marks. An API failure never gets marked as "sent".
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import random
@@ -462,7 +463,7 @@ async def send(message, uid, substance, risk, connect, meme_key=None,
     """Send a new dynamically drawn photo; preserve the old handler signature."""
     serial=next_serial(connect,uid)
     spec=make_spec(substance,risk,uid,serial)
-    data=render(spec)
+    data=await asyncio.to_thread(render,spec)
     await message.answer_photo(
         BufferedInputFile(data,filename=f"meme-{serial}.jpg"),
         caption="🎭 НЕ НАТВОРИ ДЕЛОВ · новый мем",
@@ -476,7 +477,7 @@ async def send_bot(bot,uid,substance,risk,connect,caption,reply_markup):
     """Scheduler uses the same generator, key uniqueness and shared history."""
     serial=next_serial(connect,uid)
     spec=make_spec(substance,risk,uid,serial)
-    payload=render(spec)
+    payload=await asyncio.to_thread(render,spec)
     await bot.send_photo(uid,BufferedInputFile(payload,filename=f"meme-{serial}.jpg"),
                          caption=caption[:1024],reply_markup=reply_markup)
     _record(connect,spec)
