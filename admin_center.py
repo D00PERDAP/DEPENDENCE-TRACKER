@@ -129,7 +129,7 @@ def install(dp, connect, is_admin, pirate):
         with db() as c:
             disabled={r[0] for r in c.execute("SELECT name FROM disabled_meme_characters")}
         rows=[[(("🔴 " if name in disabled else "🟢 ")+name[:35],f"ac:meme:{i}")] for i,name in enumerate(names)]
-        rows += [[("📁 Все коллекции","admin:collections")],[("⬅️ Обратно, брат","admin:panel")]]
+        rows += [[("📁 Все коллекции","admin:collections")],[("⬅️ Мемный центр","admin:memehub")]]
         await show(q,"😂 МЕМНЫЙ ШТАБ\nПерсонажи из каталога. Список отключений для модерации (пока не влияет на выдачу мемов).",rows)
 
     @dp.callback_query(F.data.startswith("ac:meme:"))
