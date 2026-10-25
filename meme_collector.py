@@ -251,8 +251,6 @@ def sync_licensed(limit=8):
     required; ambiguous material is not imported.
     """
     from urllib.parse import urlencode
-    import time
-    import tempfile
     from PIL import Image, UnidentifiedImageError
     query = "наркоман meme"
     api = "https://commons.wikimedia.org/w/api.php?" + urlencode({
@@ -268,7 +266,8 @@ def sync_licensed(limit=8):
         print("Licensed source unavailable:", type(exc).__name__)
         return
     allowed = {"cc0", "public domain", "cc-by-4.0", "cc-by-sa-4.0",
-               "cc-by-3.0", "cc-by-sa-3.0"}
+               "cc-by-3.0", "cc-by-sa-3.0", "cc by 4.0", "cc by-sa 4.0",
+               "cc by 3.0", "cc by-sa 3.0"}
     imported = 0
     rejected = 0
     manifest = ROOT / "data" / "licensed_memes.json"
