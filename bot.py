@@ -3,6 +3,7 @@ import io
 import os
 import hashlib
 import random
+import tempfile
 import sqlite3
 from collections import Counter
 from datetime import datetime, timezone, timedelta
@@ -18,6 +19,7 @@ from meme_studio import ensure_catalog
 import context_memes
 import meme_engine
 import real_memes
+import mellstroy_bank
 import v2_data
 import v2_experience
 
@@ -256,6 +258,95 @@ async def meme_vote(q: CallbackQuery):
                      ON CONFLICT(user_id,meme_key) DO UPDATE SET vote=excluded.vote""",
                   (q.from_user.id, key, vote))
     await q.answer("😂 Учту!" if vote == 1 else "🥱 Учту, покажу другое!")
+
+
+def is_meme_admin(user):
+    """No privileged actions for ordinary bot members."""
+    admins = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",")
+              if x.strip().isdigit()}
+    return bool(user and user.id in admins)
+
+
+@dp.message(Command("mellstroy"))
+async def mellstroy_status_cmd(m: Message):
+    if not is_meme_admin(m.from_user):
+        return
+    state = mellstroy_bank.status()
+    tags = ", ".join(f"{k}: {v}" for k, v in state["moods"].items())
+    await m.answer(
+        f"📸 МЕЛЛСТРОЙ — БИБЛИОТЕКА\n\n"
+        f"Реальных кадров: {state['count']} / {state['target']}\n"
+        f"Недостаёт: {state['missing']}\n"
+        f"Метки: {tags or 'пока нет'}\n\n"
+        "Как наполнить:\n"
+        "1. Скинь короткое видео с подписью /mellstroy_add YES shock "
+        "(до 19 МБ, только материал с разрешением на использование).\n"
+        "2. Или загрузите большие исходные видео на VPS и выполните:\n"
+        "python mellstroy_bank.py import /путь/к/видео --confirm-rights\n"
+        "3. /mellstroy_preview — увидеть четыре исходника.\n"
+        "Лицо не заменяется и не меняется."
+    )
+
+
+@dp.message(Command("mellstroy_preview"))
+async def mellstroy_preview_cmd(m: Message):
+    if not is_meme_admin(m.from_user):
+        return
+    entries = mellstroy_bank.templates("general", limit=4)
+    if not entries:
+        return await m.answer("Пока нет реальных кадров. /mellstroy — инструкция.")
+    from aiogram.types import FSInputFile
+    for item in entries[:4]:
+        await m.answer_photo(FSInputFile(item["path"]),
+            caption=f"📸 Оригинальный кадр • метка: {item['mood']}")
+
+
+@dp.message(F.video, F.caption.startswith("/mellstroy_add"))
+@dp.message(F.document, F.caption.startswith("/mellstroy_add"))
+async def mellstroy_add_video(m: Message):
+    """Import a rights-confirmed short video directly through Telegram.
+
+    Telegram's hosted Bot API limits bot file downloads to 20 MB. For long
+    streams, import source media directly on VPS instead.
+    """
+    if not is_meme_admin(m.from_user):
+        return
+    chunks = (m.caption or "").split()
+    if len(chunks) not in (2, 3) or chunks[0] != "/mellstroy_add" or chunks[1] != "YES":
+        return await m.answer("Подпись: /mellstroy_add YES shock\n"
+                              "YES подтверждает права на использование видео.")
+    mood = chunks[2] if len(chunks) == 3 else "auto"
+    if mood not in ("auto",) + mellstroy_bank.MOODS:
+        return await m.answer("Метка: shock, laugh, yell, smug, confused, "
+                              "tired, suspicious, angry, sad, neutral или auto.")
+    file = m.video or m.document
+    filename = getattr(file, "file_name", "") or "clip.mp4"
+    extension = Path(filename).suffix.lower()
+    if extension not in mellstroy_bank.ALLOWED_VIDEO:
+        if m.video:
+            extension = ".mp4"
+        else:
+            return await m.answer("Нужно отправить видео MP4/MOV/WEBM.")
+    if not file or (file.file_size and file.file_size > 19_000_000):
+        return await m.answer("Telegram ограничивает скачивание ботом: "
+                              "нужен ролик до 19 МБ. Большие видео загрузи на VPS.")
+    progress = await m.answer("📥 Получил видео. Отбираю неповторяющиеся кадры...")
+    with tempfile.TemporaryDirectory(prefix="mellstroy_upload_") as folder:
+        path = Path(folder) / ("clip" + extension)
+        try:
+            await m.bot.download(file.file_id, destination=path)
+            result = await asyncio.to_thread(mellstroy_bank.import_media, path,
+                    target=600, mood=mood, confirm_rights=True,
+                    source_credit="Admin-confirmed uploaded stream clip")
+            await progress.edit_text(
+                f"✅ Добавлено: {result['added']} реальных кадров.\n"
+                f"В библиотеке: {result['total']}/600.\n"
+                f"Отклонено похожих/некачественных: {result['rejected']}.\n"
+                "Для просмотра: /mellstroy_preview")
+        except Exception as exc:
+            print(f"Mellstroy video import failed: {type(exc).__name__}: {exc}", flush=True)
+            await progress.edit_text("❌ Не получилось разобрать видео. "
+                                     "Проверь ffmpeg, размер файла и журнал бота.")
 
 
 @dp.message(Command("meme_status"))
