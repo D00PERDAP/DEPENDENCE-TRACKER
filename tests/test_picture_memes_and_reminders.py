@@ -197,15 +197,17 @@ class TimerDeliveryTests(unittest.IsolatedAsyncioTestCase):
             self.sid = row.lastrowid
             v2_data.schedule_alert(c, self.uid, self.sid, 10, self.t - timedelta(minutes=12))
         self.fake_image = Path(self.tmp.name) / "test.jpg"
-        Image.new("RGB", (400, 400), "#DBA07E").save(self.fake_image)
+        Image.new("RGB", (850, 850), "#DBA07E").save(self.fake_image)
         self.bot_api = type("FakeBot", (), {"send_photo": AsyncMock()})()
 
     async def _single_tick(self):
         async def stop_sleep(*args, **kwargs):
             raise asyncio.CancelledError
-        with patch.object(bot.asyncio, "sleep", side_effect=stop_sleep):
-            with self.assertRaises(asyncio.CancelledError):
-                await bot.reminder_loop(self.bot_api)
+        with patch.object(bot.real_memes, "_prepare",
+                          return_value=(1, "unit-photo", self.fake_image.read_bytes())):
+            with patch.object(bot.asyncio, "sleep", side_effect=stop_sleep):
+                with self.assertRaises(asyncio.CancelledError):
+                    await bot.reminder_loop(self.bot_api)
 
     async def test_due_photo_sent_even_for_40_hour_session(self):
         await self._single_tick()
@@ -225,15 +227,17 @@ class TimerDeliveryTests(unittest.IsolatedAsyncioTestCase):
             next_at = datetime.fromisoformat(alert["next_at"])
             self.assertGreaterEqual(next_at, self.t + timedelta(minutes=9))
 
-    async def test_photo_reminder_never_needs_the_disk_library(self):
+    async def test_photo_reminder_uses_an_imgflip_photo_not_cartoon(self):
         async def stop_sleep(*args, **kwargs):
             raise asyncio.CancelledError
 
         with patch.object(photo_memes, "ensure_pack",
                           side_effect=PermissionError("assets are read only")):
-            with patch.object(bot.asyncio, "sleep", side_effect=stop_sleep):
-                with self.assertRaises(asyncio.CancelledError):
-                    await bot.reminder_loop(self.bot_api)
+            with patch.object(bot.real_memes, "_prepare",
+                              return_value=(1, "imgflip-template", self.fake_image.read_bytes())):
+                with patch.object(bot.asyncio, "sleep", side_effect=stop_sleep):
+                    with self.assertRaises(asyncio.CancelledError):
+                        await bot.reminder_loop(self.bot_api)
         self.bot_api.send_photo.assert_awaited_once()
         sent = self.bot_api.send_photo.await_args.args[1]
         with Image.open(io.BytesIO(sent.data)) as image:
