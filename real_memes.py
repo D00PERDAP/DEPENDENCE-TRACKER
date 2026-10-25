@@ -333,7 +333,7 @@ def _source_bytes(template):
     if not re.fullmatch(r"https://i\.imgflip\.com/[a-zA-Z0-9]+\.(?:jpg|jpeg|png|webp)",link):
         raise ValueError("Unexpected template host")
     req=urllib.request.Request(link,headers={"User-Agent":"NoTroubleMemeBot/4.0"})
-    with urllib.request.urlopen(req,timeout=9) as response:
+    with urllib.request.urlopen(req,timeout=5) as response:
         if response.status!=200 or not response.headers.get("Content-Type","").startswith("image/"):
             raise ValueError("Invalid photo source")
         payload=response.read(MAX_BYTES+1)
@@ -349,10 +349,11 @@ def _source_bytes(template):
 
 def _fonts():
     return (
-        "/usr/share/fonts/truetype/msttcorefonts/Impact.ttf",
+        # DejaVu supports Ё/Й/Ъ/Ь reliably; Impact may lack Cyrillic glyphs.
         "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/msttcorefonts/Impact.ttf",
     )
 
 def _font(size):
@@ -527,7 +528,7 @@ def _prepare(connect,uid,substance,risk,allow_paid=False):
             return serial,"ai",compose(photo,top,bottom,serial,"AI фото")
         except Exception as exc:
             print(f"Paid image provider failed: {type(exc).__name__}: {exc}",flush=True)
-    for tpl in templates[:30]:
+    for tpl in templates[:4]:
         try:
             picture=_source_bytes(tpl)
             return serial,tpl["id"],compose(picture,top,bottom,serial,
