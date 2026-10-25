@@ -356,7 +356,7 @@ def install(dp, *, is_admin, connect, render_text, log):
                     m, FSInputFile(path),
                     caption="🎙 МАГА | ПРОСЛУШКА\n\nЗацени, вацок. "
                             "Отправлять всем или ещё переделаем?",
-                    reply_markup=keyboard([
+                    markup=keyboard([
                         [("📢 Отправить подписчикам", "ac:voicesend")],
                         [("📝 Переделать текст", "ac:voice")],
                         [("❌ Отбой, брат", "ac:voicecancel")],
