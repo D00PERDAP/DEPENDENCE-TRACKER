@@ -524,16 +524,16 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             ])
 
         if action == "memethemes":
-            return await panel(q, "😂 МЕМЫ ДЛЯ ВАЦОКА\n\nВыбирай тему, брат, сейчас будет прикол!", [
-                [("🤦 Неловкие решения", "v2:memerisk:general"),
-                 ("🔥 Продолжить", "v2:memerisk:more")],
+            return await panel(q, "🦅 МЕМНЫЙ ОТДЕЛ МАГИ\n\nВыбирай тему, вацок. Фото и приколы — как раньше!", [
+                [("🎭 Жизненные", "v2:memerisk:general"),
+                 ("🔥 Не удержался", "v2:memerisk:more")],
                 [("💔 Бывшая", "v2:memerisk:ex"),
                  ("📞 Звонки", "v2:memerisk:contacts")],
                 [("💸 Деньги", "v2:memerisk:money"),
-                 ("🌚 Бессонница", "v2:memerisk:sleep")],
-                [("🚕 Куда-то ехать", "v2:memerisk:travel"),
+                 ("🌙 Без сна", "v2:memerisk:sleep")],
+                [("🚕 Приключения", "v2:memerisk:travel"),
                  ("👀 Тревога", "v2:memerisk:paranoia")],
-                [("🎲 Случайный мем", "v2:meme"),
+                [("🎲 Рандом, брат", "v2:meme"),
                  ("🏠 На базу", "v2:home")],
             ])
 
