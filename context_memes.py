@@ -1,8 +1,9 @@
-"""Context-first meme selection, without disliked auto-generated quote cards.
+"""Picture-only context meme routing.
 
-Only assets added to approved local folders are sent as images. When no fitting
-image exists, a clearly identified short text joke is sent instead of a fake match.
-No scraped third-party images are automatically republished.
+Prefer approved local photos and old-school photo-caption memes built from
+licensed animal/objects photographs. Offline original illustrations guarantee
+that a requested meme is a JPEG even without internet. Never send plain jokes
+instead of a meme photo or auto-publish unknown-rights third-party images.
 """
 from __future__ import annotations
 
