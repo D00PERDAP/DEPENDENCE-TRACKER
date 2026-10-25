@@ -111,6 +111,10 @@ async def clear_game(bot, uid):
 async def harbor(m, uid):
     with db() as c:
         rows=c.execute("SELECT id,title FROM treasures WHERE user_id=? ORDER BY id DESC LIMIT 30",(uid,)).fetchall()
+    from admin_center import db as admin_db
+    with admin_db() as ac:
+        hidden = {r[0] for r in ac.execute("SELECT treasure_id FROM hidden_treasures")}
+    rows = [r for r in rows if r["id"] not in hidden]
     opts=[[(f"🗺️ {r['title'][:40]}",f"pq:view:{r['id']}")] for r in rows]
     opts += [[("➕ Создать сокровище","pq:new")],[("🚪 Закрыть гавань","pq:exit")]]
     content = "🏴‍☠️ ТАЙНАЯ ГАВАНЬ\n\nВыбери своё сокровище:"
@@ -233,6 +237,10 @@ def install(dp):
         with db() as c:
             row=c.execute("SELECT * FROM treasures WHERE id=? AND user_id=?",(tid,q.from_user.id)).fetchone()
         if not row:return await q.answer("Сокровище не найдено.",show_alert=True)
+        from admin_center import db as admin_db
+        with admin_db() as ac:
+            if ac.execute("SELECT 1 FROM hidden_treasures WHERE treasure_id=?", (tid,)).fetchone():
+                return await q.answer("Сокровище временно скрыто.", show_alert=True)
         await q.answer()
         await clear_except_screen(q.bot, q.from_user.id)
         await track(q.from_user.id, await q.message.answer_location(row["latitude"],row["longitude"]))
