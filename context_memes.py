@@ -113,7 +113,7 @@ def candidates(substance, risk, assets=ASSETS):
             continue
         files = [p for p in directory.iterdir()
                  if p.is_file() and p.suffix.lower() in IMAGES
-                 and not p.name.startswith("original_") and p.stat().st_size > 500]
+                 and not p.name.startswith("original_") and p.stat().st_size > 0]
         if files:
             # Admin-approved images first, then permissively licensed photo memes.
             # The no-network illustrated scene generator is the final fallback.
