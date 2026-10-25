@@ -270,7 +270,7 @@ async def admin_users(q: CallbackQuery):
     if (page+1)*10 < total: nav.append(("➡️", f"admin:users:{page+1}"))
     if nav: items.append(nav)
     items.append([("🛠 Админка", "admin:panel")])
-    await display(q.message, f"👥 ПОЛЬЗОВАТЕЛИ · {total}\\nСтраница {page+1}", kb(items))
+    await display(q.message, f"👥 ВАЦОКИ В БОТЕ · {total}\\nСтраница {page+1}", kb(items))
 
 
 @dp.callback_query(F.data.startswith("admin:user:"))
