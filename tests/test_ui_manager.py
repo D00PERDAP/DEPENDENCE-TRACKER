@@ -74,6 +74,23 @@ class ScreenTests(unittest.IsolatedAsyncioTestCase):
         ui_manager._locks.clear()
         self.folder.cleanup()
 
+    async def test_rich_screen_reuses_existing_text_message_via_fallback(self):
+        await ui_manager.render_text(self.command, "Главная")
+        await ui_manager.render_rich(self.command, "## Мага", "Мага", None)
+        self.assertEqual(self.bot.sends, 1)
+        self.assertEqual(len(self.bot.messages), 1)
+
+    async def test_rich_screen_falls_back_for_unsupported_bot(self):
+        await ui_manager.render_rich(self.command, "## Мага", "Мага", None)
+        self.assertEqual(self.bot.sends, 1)
+        self.assertEqual(list(self.bot.messages.values()), [("text", "Мага")])
+
+    async def test_rich_after_photo_cleans_old_message(self):
+        await ui_manager.render_photo(self.command, b"photo", "Мем")
+        await ui_manager.render_rich(self.command, "## Мага", "Мага", None)
+        self.assertEqual(len(self.bot.messages), 1)
+        self.assertEqual(self.bot.sends, 2)
+
     async def test_start_twice_edits_old_screen(self):
         await ui_manager.render_text(self.command, "Первая")
         await ui_manager.render_text(self.command, "Вторая")
