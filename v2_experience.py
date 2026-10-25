@@ -337,10 +337,8 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     [("🔥 Меня несёт", "v2:impulses"), ("🆘 Мне плохо", "v2:safety")],
                     [("☑️ Изменить запреты", "check"), ("🏠 На базу", "v2:home")],
                 ])
-            if created:
-                await real_memes.send(q.message, uid, selected_sub,
-                                         risk_from_titles(selected), connect,
-                                         meme_key, record_meme, meme_buttons)
+            # Starting accompaniment must keep the confirmation visible.
+            # Memes are requested separately by the user, never auto-replace it.
             return
 
         if action == "activate10":
