@@ -148,7 +148,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             await message.answer(stats_dashboard.summary_caption(data) +
                                  "\n\nНе удалось построить изображение. Проверь шрифты и Pillow на сервере.")
 
-    @dp.message(Command("addmeme"))
+    @dp.message(F.text, Command("addmeme"))
     async def add_meme_help(message):
         admins = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
         if not message.from_user or message.from_user.id not in admins:
