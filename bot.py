@@ -10,6 +10,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from dotenv import load_dotenv
+from memes import streak_caption, session_caption, completed_goal_caption, ended_session_caption
 
 load_dotenv()
 TOKEN = os.getenv('BOT_TOKEN')
@@ -67,7 +68,7 @@ async def home(message, uid):
     if ses:
         title += '🔴 Сессия открыта. Не геройствуй — следи за состоянием.'
     elif days is not None:
-        title += f'🏆 {days} ДН. С ПОСЛЕДНЕЙ ЗАПИСИ. СТАТИСТИКА ПОД КОНТРОЛЕМ.'
+        title += streak_caption(days, sub or 'вещества') + '\n(С последней зарегистрированной сессии — если все сессии записаны.)'
     else:
         title += '🗿 ИСТОРИЯ ЧИСТА. НАЧИНАЕМ БЕЗ ПАФОСА.'
     title += '\n\nЭто журнал снижения вреда, а не гарантия безопасности.'
@@ -120,7 +121,7 @@ async def begin(q:CallbackQuery):
             return await q.answer('Сначала выбери вещество',show_alert=True)
         if not active(c,q.from_user.id):
             c.execute('INSERT INTO sessions(user_id,substance,started) VALUES(?,?,?)',(q.from_user.id,sub,now()))
-    await q.answer('Сессия начата')
+    await q.answer(session_caption())
     await session(q)
 
 @bot_dp.callback_query(F.data == 'end')
@@ -129,7 +130,7 @@ async def end(q:CallbackQuery):
         ses=active(c,q.from_user.id)
         if ses:
             c.execute('UPDATE sessions SET ended=? WHERE id=?',(now(),ses['id']))
-    await q.answer('Сессия завершена')
+    await q.answer(ended_session_caption())
     await home(q.message,q.from_user.id)
 
 @bot_dp.callback_query(F.data == 'note')
@@ -201,6 +202,7 @@ async def goal_toggle(q:CallbackQuery):
         ses=active(c,q.from_user.id)
         if ses:
             c.execute('UPDATE goals SET completed=1-completed WHERE id=? AND session_id=?',(gid,ses['id']))
+    await q.answer(completed_goal_caption())
     await goals(q)
 
 @bot_dp.callback_query(F.data == 'stats')
