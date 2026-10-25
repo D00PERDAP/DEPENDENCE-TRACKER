@@ -641,11 +641,19 @@ async def send(message,uid,substance,risk,connect,*args,**kwargs):
         serial,source,payload=prepared[:3]
         joke_id=prepared[3] if len(prepared)>3 else None
         key=hashlib.sha256(f"{uid}:{serial}:{source}".encode()).hexdigest()[:16]
-        import ui_manager
-        await ui_manager.render_photo(
-            message, payload, "🎭 Старый добрый мем", _keyboard(key),
-            filename=f"meme-{serial}.jpg",
-        )
+        if getattr(message, "chat", None) is None:
+            # Backward-compatible minimal message adapters in offline tests.
+            await message.answer_photo(
+                BufferedInputFile(payload, filename=f"meme-{serial}.jpg"),
+                caption="🎭 Старый добрый мем",
+                reply_markup=_keyboard(key),
+            )
+        else:
+            import ui_manager
+            await ui_manager.render_photo(
+                message, payload, "🎭 Старый добрый мем", _keyboard(key),
+                filename=f"meme-{serial}.jpg",
+            )
         _record(connect,uid,serial,source,payload,str(risk),joke_id=joke_id)
         return True
     except Exception as exc:
