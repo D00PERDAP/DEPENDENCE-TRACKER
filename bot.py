@@ -108,10 +108,13 @@ def active(c, uid):
 
 
 def ensure_preset(c, uid):
-    n = c.execute("SELECT COUNT(*) FROM checklist WHERE user_id=?", (uid,)).fetchone()[0]
-    if n == 0:
-        c.executemany("INSERT INTO checklist(user_id,title,selected) VALUES(?,?,0)",
-                      [(uid, text) for text in PRESETS])
+    """Append new optional defaults without resetting any old/custom choices."""
+    existing = {row[0] for row in c.execute(
+        "SELECT title FROM checklist WHERE user_id=?", (uid,)
+    ).fetchall()}
+    missing = [(uid, title) for title in PRESETS if title not in existing]
+    if missing:
+        c.executemany("INSERT INTO checklist(user_id,title,selected) VALUES(?,?,0)", missing)
 
 
 def picked(c, uid):
