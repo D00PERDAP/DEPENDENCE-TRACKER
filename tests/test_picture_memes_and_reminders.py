@@ -92,6 +92,24 @@ class TelegramMemePhotoTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(hasattr(msg.answer_photo.await_args.args[0], "data"))
             msg.answer.assert_not_awaited()
 
+    async def test_telegram_outage_does_not_double_send_photo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            picture = Path(tmp) / "photo.jpg"
+            Image.new("RGB", (500, 500), "#333333").save(picture)
+            msg = type("FakeMessage", (), {
+                "answer_photo": AsyncMock(side_effect=RuntimeError("Telegram outage")),
+                "answer": AsyncMock(),
+            })()
+            with patch.object(context_memes, "choose_photo", return_value=picture):
+                result = await context_memes.send(
+                    msg, 42, "Мефедрон", "more",
+                    bot.connect, lambda _: "a" * 16,
+                    lambda uid, p: None, lambda p: None,
+                )
+            self.assertFalse(result)
+            msg.answer_photo.assert_awaited_once()
+            msg.answer.assert_awaited_once()
+
     async def test_unwritable_asset_directory_still_sends_jpeg(self):
         msg = type("FakeMessage", (), {
             "answer_photo": AsyncMock(), "answer": AsyncMock()
