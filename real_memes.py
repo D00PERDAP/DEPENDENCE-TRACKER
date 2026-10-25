@@ -32,6 +32,7 @@ from PIL import Image, ImageDraw, ImageOps, ImageFont, ImageFilter, ImageEnhance
 from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
 import meme_engine
+import mellstroy_bank
 
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "data" / "meme_photo_cache"
@@ -401,51 +402,64 @@ def _ai_image(risk,seed):
         answer=json.loads(result.read(12_000_000))
     return base64.b64decode(answer["data"][0]["b64_json"])
 
-def _prepare(connect,uid,substance,risk,allow_paid=False):
-    serial=meme_engine.next_serial(connect,uid)
-    risk=risk if risk in LINES else "general"
-    templates=_curated_templates()
-    # Search templates in the permitted free pool. Premium search can be added
-    # after owner reviews image rights/content; don't use arbitrary NSFW results.
-    try:
-        templates+=_top_templates()
-    except Exception as exc:
-        print(f"Imgflip catalog unavailable: {type(exc).__name__}: {exc}",flush=True)
-    # Never make Premium calls unless the owner explicitly configured the key
-    # and enabled MEME_PREMIUM_SEARCH=1.
-    templates+=_premium_templates(connect)
-    # Apply strong topic matching and exclude images seen very recently.
-    # A user's own approved pictures go first when they fit their context.
+def _prepare(connect, uid, substance, risk, allow_paid=False):
+    """Use Mellstroy footage FIRST whenever the owner has imported real frames.
+
+    A curated reaction gets matched by its editorial mood label and the meme's
+    topic, with all 600 originals rotating before reuse. No AI face changes.
+    """
+    serial = meme_engine.next_serial(connect, uid)
+    risk = risk if risk in LINES else "general"
     with connect() as c:
-        recent={str(row[0]) for row in c.execute(
+        recent = {str(row[0]) for row in c.execute(
             "SELECT template_id FROM real_meme_sent WHERE user_id=?"
-            " ORDER BY serial DESC LIMIT 15",(uid,)).fetchall()}
-    def rank(t):
-        is_curated="path" in t
-        matches=(t.get("risk")==risk or t.get("risk")=="general")
-        return (0 if is_curated and matches else
-                1 if not is_curated else 2)
-    rng=random.Random(secrets.randbits(64))
-    rng.shuffle(templates)
-    templates.sort(key=lambda t:(1 if t["id"] in recent else 0,rank(t)))
-    top,bottom=_lines(risk,serial,substance)
-    # Owner's paid optional photo generator has a hard daily request ceiling.
-    if allow_paid and _budget(connect):
+            " ORDER BY serial DESC LIMIT 1200", (uid,)).fetchall()}
+
+    # Self-contained real stream frames need neither Imgflip nor a paid API.
+    actual = mellstroy_bank.templates(risk, seen=recent, limit=28)
+    using_mellstroy = bool(actual)
+    if using_mellstroy:
+        templates = actual
+    else:
+        templates = _curated_templates()
         try:
-            photo=_ai_image(risk,serial)
-            return serial,"ai",compose(photo,top,bottom,serial,"AI фото")
+            templates += _top_templates()
         except Exception as exc:
-            print(f"Paid image provider failed: {type(exc).__name__}: {exc}",flush=True)
-    for tpl in templates[:4]:
+            print(f"Imgflip catalog unavailable: {type(exc).__name__}: {exc}",
+                  flush=True)
+        # Owner must explicitly enable Premium API and its daily budget.
+        templates += _premium_templates(connect)
+
+        def rank(t):
+            is_curated = "path" in t
+            matches = t.get("risk") in (risk, "general")
+            return 0 if is_curated and matches else 1 if not is_curated else 2
+
+        random.shuffle(templates)
+        templates.sort(key=lambda t: (1 if t["id"] in recent else 0,
+                                      rank(t)))
+    top, bottom = _lines(risk, serial, substance)
+
+    # For a local Mellstroy bank, NEVER spend on AI-generated "lookalike" faces.
+    if not using_mellstroy and allow_paid and _budget(connect):
         try:
-            picture=_source_bytes(tpl)
-            return serial,tpl["id"],compose(picture,top,bottom,serial,
-                                              "Imgflip" if "url" in tpl else "Фото автора")
+            photo = _ai_image(risk, serial)
+            return serial, "ai", compose(photo, top, bottom, serial, "AI фото")
         except Exception as exc:
-            print(f"Photo template unavailable {tpl['id']}: "
-                  f"{type(exc).__name__}: {exc}",flush=True)
-    raise RuntimeError("Нет доступных фотомемов: проверь интернет или положи "
-                       "свои разрешённые фото в assets/memes/approved_photos/")
+            print(f"Paid photo provider failed: {type(exc).__name__}: {exc}",
+                  flush=True)
+
+    for tpl in templates[:8 if using_mellstroy else 4]:
+        try:
+            photo = _source_bytes(tpl)
+            source = ("Реальный кадр" if tpl.get("id", "").startswith("mellstroy-")
+                      else "Imgflip" if "url" in tpl else "Фото автора")
+            return serial, tpl["id"], compose(photo, top, bottom, serial, source)
+        except Exception as exc:
+            print(f"Photo unavailable {tpl['id']}: "
+                  f"{type(exc).__name__}: {exc}", flush=True)
+    raise RuntimeError("Нет доступных фотокадров: загрузите разрешённый "
+                       "видеоматериал в библиотеку или проверьте Imgflip.")
 
 def _keyboard(key):
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -466,7 +480,7 @@ def _record(connect,uid,serial,source,photo,text):
                      VALUES(?,?,?,?,?)""",(uid,serial,str(source),text,today))
         c.execute("""DELETE FROM real_meme_sent WHERE user_id=? AND serial NOT IN
                   (SELECT serial FROM real_meme_sent WHERE user_id=?
-                   ORDER BY serial DESC LIMIT 300)""",(uid,uid))
+                   ORDER BY serial DESC LIMIT 1200)""",(uid,uid))
     return key
 
 async def send(message,uid,substance,risk,connect,*args,**kwargs):
