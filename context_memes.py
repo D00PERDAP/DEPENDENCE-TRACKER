@@ -236,8 +236,11 @@ async def send(message, uid, substance, risk, connect, meme_key, record_meme, me
                 )
                 record_meme(uid, path)
                 return True
-            except Exception as file_exc:
-                print(f"Stored meme JPEG send failed: "
+            except (OSError, ValueError) as file_exc:
+                # Only a local image/file problem should trigger re-rendering.
+                # Do not send an immediate duplicate request when Telegram
+                # itself is unavailable; report the error below instead.
+                print(f"Stored meme JPEG file failed: "
                       f"{type(file_exc).__name__}: {file_exc}", flush=True)
                 # File may have been removed/corrupted since selection.
                 # Fall through to self-contained memory JPEG.
