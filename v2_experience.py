@@ -269,6 +269,9 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             ]
             rows.insert(0, [("⏹ Завершить", "v2:finish")] if session
                         else [("▶️ Начать", "v2:start")])
+            from bot import is_meme_admin_id
+            if is_meme_admin_id(uid):
+                rows.append([("🛠 Админка", "admin:panel")])
             await panel(q, text, rows)
             return
 
