@@ -14,7 +14,7 @@ from aiogram import Bot, Dispatcher, F, BaseMiddleware
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile, BotCommand, InputMediaAnimation, FSInputFile
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile, BotCommand, InputMediaPhoto, FSInputFile
 from dotenv import load_dotenv
 from meme_studio import ensure_catalog
 import context_memes
@@ -536,18 +536,18 @@ async def home(message, uid):
         )
     else:
         text = (
-            "🦅 САЛАМ, БРОДЯГА! МАГА НА СВЯЗИ!\n\n"
-            "Выбирай раздел, брат. Главное — не натвори делов! 😂"
+            "🦅 Салам алейкум!\n\n"
+            "Мага на связи, брат!"
         )
     markup = home_buttons(bool(session), is_meme_admin_id(uid))
-    intro = Path(__file__).resolve().parent / "assets" / "maga_menu_intro.gif"
+    intro = Path(__file__).resolve().parent / "assets" / "maga_menu_photo.jpg"
     if not intro.is_file():
         return await display(message, text, markup)
 
     try:
         if message.animation or message.photo or message.video:
             await message.edit_media(
-                InputMediaAnimation(media=FSInputFile(intro), caption=text),
+                InputMediaPhoto(media=FSInputFile(intro), caption=text),
                 reply_markup=markup,
             )
         else:
@@ -558,8 +558,8 @@ async def home(message, uid):
                     await message.delete()
                 except Exception:
                     pass
-            await message.answer_animation(
-                animation=FSInputFile(intro), caption=text, reply_markup=markup
+            await message.answer_photo(
+                photo=FSInputFile(intro), caption=text, reply_markup=markup
             )
     except Exception as exc:
         print(f"Maga menu animation fallback: {type(exc).__name__}: {exc}", flush=True)
