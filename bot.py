@@ -677,8 +677,11 @@ async def reminder_loop(bot):
                                                  caption=caption[:1024],
                                                  reply_markup=keyboard)
                             record_meme(uid, path)
-                        except Exception as stored_exc:
-                            print(f"Stored reminder picture failed; trying fresh JPG: "
+                        except (OSError, ValueError) as stored_exc:
+                            # Only local file/encoding issues justify rebuilding the JPEG.
+                            # Telegram/network errors must reach the one-minute retry
+                            # handler, not trigger an immediate duplicate API request.
+                            print(f"Stored reminder picture unreadable; trying fresh JPG: "
                                   f"{type(stored_exc).__name__}: {stored_exc}", flush=True)
                             from aiogram.types import BufferedInputFile
                             from photo_memes import inline_picture
