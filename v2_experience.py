@@ -80,8 +80,21 @@ def risk_from_titles(titles):
     return "check"
 
 
+def risks_from_titles(titles):
+    """Rotate multiple self-selected limits instead of repeating one risk all day."""
+    hay = " ".join(titles).casefold()
+    found = [tag for tag, term in PROBLEMS.items() if term in hay]
+    if ("покуп" in hay or "догон" in hay) and "more" not in found:
+        found.append("more")
+    if ("писа" in hay or "звон" in hay) and "contacts" not in found:
+        found.append("contacts")
+    if "ехать" in hay and "travel" not in found:
+        found.append("travel")
+    return found or ["check"]
+
+
 def reminder_text(substance, titles, event_tag=None):
-    risk = event_tag if event_tag in safety.IMPULSE_ADVICE else risk_from_titles(titles)
+    risk = event_tag if event_tag in safety.IMPULSE_ADVICE else random.choice(risks_from_titles(titles))
     main = RISK_NUDGES.get(risk) or random.choice(REMINDER_LINES)
     selected = "\n".join("☑️ " + x[:85] for x in titles[:4])
     return (f"🔔 НЕ НАТВОРИ ДЕЛОВ • {substance}\n\n{main}\n\n"
