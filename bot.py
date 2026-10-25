@@ -159,12 +159,12 @@ async def display(message, text, markup):
 def home_buttons(running=False, admin=False):
     # One compact dashboard; secondary features stay inside their sections.
     rows = [
-        [("😂 Мем", "v2:meme"), ("🔥 Стоп", "v2:impulses")],
-        [("🫀 Состояние", "v2:checkin"), ("🆘 Помощь", "v2:safety")],
-        [("⚙️ Моё", "ui:mine")],
+        [("😂 Мемчик", "v2:meme"), ("🔥 Держи себя, брат", "v2:impulses")],
+        [("🫀 Как ты, вацок?", "v2:checkin"), ("🆘 Помощь", "v2:safety")],
+        [("⚙️ Моё, брат", "ui:mine")],
     ]
-    rows.insert(0, [("⏹ Завершить", "v2:finish")] if running
-                else [("▶️ Начать", "v2:start")])
+    rows.insert(0, [("⏹ Закончить, брат", "v2:finish")] if running
+                else [("▶️ Погнали, вацок", "v2:start")])
     if admin:
         rows.append([("🛠 Штаб Маги", "admin:panel")])
     return kb(rows)
@@ -1018,7 +1018,7 @@ async def checklist(message, uid):
         session = active(c, uid)
     markup = [[(("✅ " if r["selected"] else "▫️ ") + r["title"][:55], f"toggle:{r['id']}")] for r in rows]
     markup += [[("✍️ Свой пункт", "custom")]]
-    markup += [[("▶️ Начать" if not session else "🔔 Настроить сопровождение", "v2:start" if not session else "v2:settings")]]
+    markup += [[("▶️ Погнали, вацок" if not session else "🔔 Настроить, брат", "v2:start" if not session else "v2:settings")]]
     markup += [[("🏠 Назад", "home")]]
     await display(message, "☑️ Я НЕ ХОЧУ\n\nНажми на то, чего сегодня НЕ хочешь делать. Повторное нажатие убирает галочку.", kb(markup))
 
@@ -1053,7 +1053,7 @@ async def save_custom(m: Message, state: FSMContext):
     with connect() as c:
         c.execute("INSERT INTO checklist(user_id,title,selected) VALUES(?,?,1)", (m.from_user.id, m.text.strip()))
     await state.clear()
-    await m.answer("✅ Добавлено.", reply_markup=kb([[("☑️ К чек-листу", "check")]]))
+    await m.answer("✅ Добавлено.", reply_markup=kb([[("☑️ К моим правилам", "check")]]))
 
 
 @dp.callback_query(F.data == "substance")
@@ -1067,7 +1067,7 @@ async def substance(q: CallbackQuery):
     if not selected:
         return await display(q.message, "Отметь хотя бы один пункт.", kb([[("☑️ К списку", "check")]]))
     rows = [[(name, f"sub:{i}")] for i, name in enumerate(SUBSTANCES)]
-    rows.append([("⬅️ Назад", "check")])
+    rows.append([("⬅️ Обратно, брат", "check")])
     await display(q.message, "Что употребляешь или планируешь?\nМожно не указывать. Здесь нет дозировок и рекомендаций по употреблению.", kb(rows))
 
 
