@@ -185,8 +185,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 BufferedInputFile(image, filename="my-statistics.jpg"),
                 caption=stats_dashboard.summary_caption(data),
                 reply_markup=kb([
-                    [("🔄 Освежить", "v2:stats"), ("☑️ Моё слово", "check")],
-                    [("🏠 На базу", "v2:home"), ("🗑 Удалить записи", "delete_ask")],
+                    [("🔄 Обновить расклад", "v2:stats"), ("🏠 На базу", "v2:home")],
                 ]),
             )
         except (OSError, ValueError, RuntimeError) as exc:
