@@ -35,6 +35,18 @@ class VoiceBroadcastTests(unittest.TestCase):
         self.assertIn('"-f", "concat"', source)
         self.assertIn("maga_part_", source)
 
+    def test_preview_uses_render_voice_markup_parameter(self):
+        import ast
+        source = Path(voice_broadcast.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Attribute)
+                 and n.func.attr == "render_voice"]
+        self.assertEqual(len(calls), 1)
+        keywords = {k.arg for k in calls[0].keywords}
+        self.assertIn("markup", keywords)
+        self.assertNotIn("reply_markup", keywords)
+
     def test_broadcast_requires_preview_and_admin(self):
         source = Path(voice_broadcast.__file__).read_text(encoding="utf-8")
         self.assertIn('is_admin(q.from_user.id)', source)
