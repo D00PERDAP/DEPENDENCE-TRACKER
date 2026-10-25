@@ -22,6 +22,7 @@ import meme_engine
 import real_memes
 import mellstroy_bank
 import reaction_bank
+import pirate_quests
 import joke_catalog
 import v2_data
 import v2_experience
@@ -1289,6 +1290,8 @@ async def originals_loop():
             print(f"Optional AI meme writing error: {type(exc).__name__}: {exc}")
         await asyncio.sleep(6 * 3600)
 
+
+pirate_quests.install(dp)
 
 v2_experience.install(
     dp, connect=connect, active=active, picked=picked, ensure_preset=ensure_preset,
