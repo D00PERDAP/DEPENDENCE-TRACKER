@@ -149,7 +149,7 @@ async def meme_queue(m: Message):
         path = ROOT / item["preview"]
         if path.is_file():
             await m.answer_photo(FSInputFile(path), caption=f"#{item['id']} • Проверь права и содержание.\\nИсточник: {item['source']}"[:1024],
-                                 reply_markup=kb([[("✅ Права подтверждены", f"mapprove:{item['id']}"),
+                                 reply_markup=kb([[("✅ Проверил права и мем", f"mapprove:{item['id']}"),
                                                    ("❌ Отклонить", f"mreject:{item['id']}")]]))
     await m.answer(f"Ожидают проверки: {len(pending)}. Показаны первые пять. /meme_queue — следующие после обработки.")
 
