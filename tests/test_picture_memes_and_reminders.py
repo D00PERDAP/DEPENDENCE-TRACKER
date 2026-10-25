@@ -49,6 +49,45 @@ class PictureMemeTests(unittest.TestCase):
             call.assert_not_called()
 
 
+class TelegramMemePhotoTests(unittest.IsolatedAsyncioTestCase):
+    async def test_meme_button_sends_photo_not_a_text_joke(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            picture = Path(tmp) / "approved.jpg"
+            Image.new("RGB", (640, 640), "#333333").save(picture)
+            msg = type("FakeMessage", (), {
+                "answer_photo": AsyncMock(), "answer": AsyncMock()
+            })()
+            with patch.object(context_memes, "candidates", return_value=[picture]):
+                with patch.object(context_memes, "choose_photo", return_value=picture):
+                    seen = []
+                    result = await context_memes.send(
+                        msg, 42, "Мефедрон", "more",
+                        bot.connect, lambda _: "a" * 16,
+                        lambda uid, p: seen.append((uid, p)),
+                        lambda p: None,
+                    )
+            self.assertTrue(result)
+            msg.answer_photo.assert_awaited_once()
+            msg.answer.assert_not_awaited()
+            self.assertEqual(seen, [(42, picture)])
+
+    async def test_unavailable_picture_explains_error_not_fake_meme(self):
+        msg = type("FakeMessage", (), {
+            "answer_photo": AsyncMock(), "answer": AsyncMock()
+        })()
+        with patch.object(context_memes, "candidates", return_value=[]):
+            with patch.object(context_memes, "choose_photo", return_value=None):
+                with patch.object(photo_memes, "ensure_pack", return_value=[]):
+                    result = await context_memes.send(
+                        msg, 42, "Мефедрон", "more",
+                        bot.connect, lambda _: "a" * 16,
+                        lambda uid, p: None, lambda p: None,
+                    )
+        self.assertFalse(result)
+        msg.answer_photo.assert_not_awaited()
+        self.assertIn("библиотека изображений", msg.answer.await_args.args[0])
+
+
 class ReminderScheduleTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
