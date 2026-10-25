@@ -22,7 +22,14 @@ MAX_PER_SOURCE = 12
 ALLOWED = {"image/jpeg", "image/png", "image/webp"}
 BLOCK = ("avatar", "logo", "icon", "emoji", "favicon", "banner", "pixel", "tracking", "ads")
 TOPIC = re.compile(r"наркот|нарком|мефедрон|меф|соль|соли|амфетамин|кокаин|героин|каннабис|марихуан|гашиш|мдма|mdma|lsd|лсд|кетамин|психоделик|упорот|прикол|мем", re.I)
-PINTEREST_TERMS = ("меф мемы", "Паша Техник мемы", "наркоманские мемы", "упоротые мемы")
+PINTEREST_TERMS = (
+    "меф мемы", "мефедрон приколы", "Паша Техник мемы", "Паша Техник цитаты",
+    "наркоманские мемы", "упоротые мемы", "солевые мемы", "альфа пвп мемы",
+    "амфетамин мемы", "скорость мемы", "экстази мемы", "MDMA мемы",
+    "марихуана мемы", "трава мемы", "гашиш мемы", "кокаин мемы",
+    "ЛСД мемы", "психоделики мемы", "кетамин мемы", "героин мемы",
+    "наркотики черный юмор", "трезвость мемы", "ломка мемы",
+)
 PINTEREST_SEARCHES = [
     "https://www.pinterest.com/search/pins/?" + urlencode({"q": term})
     for term in PINTEREST_TERMS
@@ -33,7 +40,7 @@ SOURCES = [
     "https://memepedia.ru/lovite-narkomana/",
     "https://reactor.cc/search/Наркотики+мемы",
     "https://t.me/s/memsearch?before=7758",
-    *PINTEREST_SEARCHES,
+
 ]
 
 
@@ -159,7 +166,7 @@ def run():
     tmp = INDEX.with_suffix(".tmp")
     tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(INDEX)
-    print(f"Review images added: {added}. Total queued: {len(items)}.")
+    print(f"Review images added: {added}. Total queued: {len(items)}.")\n    print("Pinterest search terms configured:", len(PINTEREST_TERMS), "(no unauthorized Pinterest scraping).")
     print("Previews are NOT published. Source rights and actual meme relevance must be verified.")
 
 
