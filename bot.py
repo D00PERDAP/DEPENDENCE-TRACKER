@@ -1,6 +1,7 @@
 import asyncio
 import io
 import os
+import hashlib
 import random
 import sqlite3
 from collections import Counter
@@ -13,6 +14,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile
 from dotenv import load_dotenv
+from meme_studio import ensure_catalog
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
@@ -59,6 +61,18 @@ def init():
         CREATE TABLE IF NOT EXISTS checklist (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, title TEXT NOT NULL, selected INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS alerts (user_id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, interval_min INTEGER NOT NULL DEFAULT 30, next_at TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id,started);
+        CREATE TABLE IF NOT EXISTS meme_sends (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          meme_key TEXT NOT NULL,
+          at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_meme_sends_user ON meme_sends(user_id, id DESC);
+        CREATE TABLE IF NOT EXISTS meme_votes (
+          user_id INTEGER NOT NULL, meme_key TEXT NOT NULL,
+          vote INTEGER NOT NULL CHECK(vote IN (-1, 1)),
+          PRIMARY KEY(user_id, meme_key)
+        );
         """)
 
 
@@ -187,7 +201,7 @@ async def review_meme(q: CallbackQuery):
     else:
         item["status"] = "rejected"
     tmp = INDEX.with_suffix(".tmp")
-    tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8")
+    tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     tmp.replace(INDEX)
     await q.answer("Сохранено")
     await q.message.edit_reply_markup(reply_markup=None)
@@ -407,6 +421,8 @@ async def delete_yes(q: CallbackQuery):
         c.execute("DELETE FROM goals WHERE session_id IN (SELECT id FROM sessions WHERE user_id=?)", (uid,))
         c.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
         c.execute("DELETE FROM users WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM meme_sends WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM meme_votes WHERE user_id=?", (uid,))
     await q.answer("Удалено")
     await display(q.message, "История удалена из активной базы. Резервные копии на сервере удаляются отдельно.", kb([[("🏠 Меню", "home")]]))
 
@@ -488,15 +504,21 @@ async def main():
     if not TOKEN or TOKEN == "put_your_token_here":
         raise RuntimeError("Set BOT_TOKEN in .env")
     init()
+    try:
+        await asyncio.to_thread(ensure_catalog, limit=16)
+    except Exception as exc:
+        print(f"Original meme generation failed: {type(exc).__name__}: {exc}")
     bot = Bot(TOKEN)
     task = asyncio.create_task(reminder_loop(bot))
     discovery_task = asyncio.create_task(meme_update_loop())
+    originals_task = asyncio.create_task(asyncio.to_thread(ensure_catalog))
     try:
         await dp.start_polling(bot)
     finally:
         task.cancel()
         discovery_task.cancel()
-        await asyncio.gather(task, discovery_task, return_exceptions=True)
+        originals_task.cancel()
+        await asyncio.gather(task, discovery_task, originals_task, return_exceptions=True)
 
 
 if __name__ == "__main__":
