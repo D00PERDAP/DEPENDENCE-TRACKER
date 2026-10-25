@@ -210,6 +210,20 @@ async def send_situation_meme(message, uid):
     return await meme_engine.send(message, uid, substance, risk, connect)
 
 
+@dp.message(Command("meme_count"))
+async def meme_count(m: Message):
+    """User-only lifetime sequence of generated images."""
+    with connect() as c:
+        row = c.execute("SELECT serial FROM meme_dynamic_counter WHERE user_id=?",
+                        (m.from_user.id,)).fetchone()
+        total = int(row[0]) if row else 0
+        recent = c.execute("SELECT COUNT(*) FROM meme_dynamic_history WHERE user_id=?",
+                           (m.from_user.id,)).fetchone()[0]
+    await m.answer(f"🎭 Создано уникальных мемов: {total}.\n"
+                   f"Сохранена история последних: {recent}.\n"
+                   "Каждый новый запрос создаёт изображение заново.")
+
+
 @dp.message(Command("meme"))
 async def send_test_meme(m: Message):
     await send_situation_meme(m, m.from_user.id)
