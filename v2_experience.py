@@ -564,7 +564,8 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 db.record_event(c, uid, None, "state", tag)
             return await panel(q, "Отметка сохранена. Спасибо, что проверил своё состояние.\n"
                                "Сделай паузу и не принимай важных решений на автомате.", [
-                [("📊 Моя статистика", "v2:stats"), ("🏠 Меню", "v2:home")],
+                [("📊 Моя статистика", "v2:stats"), ("🆘 Мне плохо", "v2:safety")],
+                [("🏠 Меню", "v2:home")],
             ])
 
         return await panel(q, "Этот пункт недоступен.", [[("🏠 Меню", "v2:home")]])
