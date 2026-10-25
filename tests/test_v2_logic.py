@@ -15,7 +15,7 @@ import bot
 import context_memes
 import harm_reduction
 import stats_dashboard
-import v2_data
+import v2_data as db
 import v2_experience
 
 
