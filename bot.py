@@ -615,76 +615,128 @@ def choose_meme(category, previous=None, user_id=None):
 
 
 async def reminder_loop(bot):
-    """Frequent opt-in nudges, with boost/quiet settings and relevant vetted memes."""
+    """Opt-in reminders: photos every selected interval, retry on delivery failure.
+
+    Do not silently close a session after 24 hours. User explicitly ends it or
+    pauses notifications. Keep next_at unchanged until the photo is sent.
+    """
+    from aiogram.types import FSInputFile
+    from photo_memes import ensure_pack
     while True:
         try:
             current = utcnow()
             with connect() as c:
                 due = c.execute(
                     "SELECT * FROM alerts WHERE next_at<=? ORDER BY next_at LIMIT 50",
-                    (current.isoformat(),)
+                    (v2_data.stamp(current),)
                 ).fetchall()
             for alert in due:
                 uid, sid = alert["user_id"], alert["session_id"]
+                prev_due = alert["next_at"]
                 with connect() as c:
                     session = c.execute(
                         "SELECT * FROM sessions WHERE id=? AND user_id=? AND ended IS NULL",
                         (sid, uid)
                     ).fetchone()
                     if not session:
-                        c.execute("DELETE FROM alerts WHERE user_id=? AND session_id=?", (uid, sid))
-                        continue
-                    began = datetime.fromisoformat(session["started"])
-                    if current - began >= timedelta(hours=24):
-                        c.execute("DELETE FROM alerts WHERE user_id=? AND session_id=?", (uid, sid))
-                        c.execute("UPDATE sessions SET ended=? WHERE id=? AND ended IS NULL",
-                                  (iso(), sid))
+                        c.execute("DELETE FROM alerts WHERE user_id=? AND session_id=?",
+                                  (uid, sid))
                         continue
                     settings = v2_data.get_settings(c, uid)
+                    # Preserve legacy reminder intervals, and restore the base
+                    # interval after temporary 10-minute boost expires.
+                    minutes = max(10, int(alert["interval_min"]))
+                    if settings["boost_until"]:
+                        minutes = v2_data.active_minutes(settings, current) or minutes
                     if settings["quiet"]:
-                        later = (current + timedelta(minutes=max(15, int(settings["base_interval"])))).isoformat()
-                        c.execute("UPDATE alerts SET next_at=? WHERE user_id=? AND session_id=?",
-                                  (later, uid, sid))
+                        c.execute("UPDATE alerts SET next_at=? WHERE user_id=? AND next_at=?",
+                                  (v2_data.stamp(current + timedelta(minutes=1)),
+                                   uid, prev_due))
                         continue
-                    # Respect user-selected interval; temporary 10-minute boost expires itself.
-                    minutes = v2_data.active_minutes(settings, current)
-                    if minutes == 0:
-                        minutes = 30
-                    selected = [x["title"] for x in picked(c, uid)]
-                    last_risk = c.execute(
+                    titles = [x["title"] for x in picked(c, uid)]
+                    row = c.execute(
                         "SELECT tag FROM v2_events WHERE user_id=? AND event_type='risk' "
                         "AND created_at>=? ORDER BY id DESC LIMIT 1",
                         (uid, v2_data.stamp(current - timedelta(hours=2)))
                     ).fetchone()
-                    risk_tag = last_risk["tag"] if last_risk else None
-                    next_at = (current + timedelta(minutes=minutes)).isoformat(timespec="seconds")
-                    c.execute("UPDATE alerts SET interval_min=?,next_at=? "
-                              "WHERE user_id=? AND session_id=?", (minutes, next_at, uid, sid))
-                text, risk = v2_experience.reminder_text(session["substance"], selected, risk_tag)
+                    risk_tag = row["tag"] if row else None
+
+                caption, risk = v2_experience.reminder_text(session["substance"],
+                                                            titles, risk_tag)
                 keyboard = v2_experience.reminder_keyboard(kb)
                 try:
-                    vetted = context_memes.candidates(session["substance"], risk)
-                    if vetted:
-                        with connect() as c:
-                            seen = {row[0] for row in c.execute(
-                                "SELECT meme_key FROM meme_sends WHERE user_id=? ORDER BY id DESC LIMIT 25",
-                                (uid,)
-                            ).fetchall()}
-                        fresh = [p for p in vetted if meme_key(p) not in seen]
-                        path = random.choice(fresh or vetted)
-                        from aiogram.types import FSInputFile
-                        await bot.send_photo(uid, FSInputFile(path), caption=text[:1024],
-                                             reply_markup=keyboard)
-                        record_meme(uid, path)
-                    else:
-                        # No pretending generic, template-text cards are real photo memes.
-                        text += "\n\n🎭 " + context_memes.joke(session["substance"], risk)
-                        await bot.send_message(uid, text, reply_markup=keyboard)
+                    path = context_memes.choose_photo(
+                        session["substance"], risk, connect, uid, meme_key)
+                    if path is None:
+                        await asyncio.to_thread(ensure_pack)
+                        path = context_memes.choose_photo(
+                            session["substance"], risk, connect, uid, meme_key)
+                    if path is None:
+                        raise RuntimeError("Picture meme library is empty")
+                    await bot.send_photo(uid, FSInputFile(path),
+                                         caption=caption[:1024],
+                                         reply_markup=keyboard)
+                    record_meme(uid, path)
                 except Exception as exc:
-                    print(f"Reminder delivery error: {type(exc).__name__}")
+                    # Leave an audit trail and try again in one minute, rather
+                    # than advancing the timer without delivering anything.
+                    print(f"Reminder photo failed for {uid}: {type(exc).__name__}: {exc}",
+                          flush=True)
+                    with connect() as c:
+                        c.execute(
+                            "UPDATE alerts SET next_at=? WHERE user_id=? "
+                            "AND session_id=? AND next_at=?",
+                            (v2_data.stamp(utcnow() + timedelta(minutes=1)),
+                             uid, sid, prev_due)
+                        )
+                    continue
+
+                with connect() as c:
+                    c.execute(
+                        "UPDATE alerts SET interval_min=?, next_at=? WHERE user_id=? "
+                        "AND session_id=? AND next_at=?",
+                        (minutes, v2_data.stamp(utcnow() + timedelta(minutes=minutes)),
+                         uid, sid, prev_due)
+                    )
         except Exception as exc:
-            print(f"Reminder loop error: {type(exc).__name__}: {exc}")
-        await asyncio.sleep(25)
+            print(f"Reminder scheduler error: {type(exc).__name__}: {exc}", flush=True)
+        await asyncio.sleep(15)
+
+
+def reminder_status_text(c, uid):
+    """Explain actual scheduled state instead of falsely claiming alerts are on."""
+    import math
+    session = active(c, uid)
+    alert = c.execute("SELECT * FROM alerts WHERE user_id=?", (uid,)).fetchone()
+    settings = v2_data.get_settings(c, uid)
+    if not session:
+        return "🔕 Сопровождение не запущено. Сначала выбери вещество и включи таймер."
+    if not alert or alert["session_id"] != session["id"]:
+        return ("⚠️ Активная сессия есть, но уведомления НЕ запланированы.\n"
+                "Нажми «🔔 Запустить 10 минут», чтобы включить их.")
+    if settings["quiet"]:
+        return "⏸ Напоминания сейчас отключены. Можно включить их в настройках."
+    try:
+        next_time = datetime.fromisoformat(alert["next_at"])
+        if next_time.tzinfo is None:
+            next_time = next_time.replace(tzinfo=timezone.utc)
+        mins = max(0, math.ceil((next_time - utcnow()).total_seconds() / 60))
+        return (f"🔔 Напоминания включены: каждые {alert['interval_min']} мин.\n"
+                f"Следующая отправка: примерно через {mins} мин.\n"
+                "Бот должен прислать фотографию с мемом и твоими запретами.")
+    except (TypeError, ValueError):
+        return "⚠️ Неправильная дата следующей отправки. Повтори настройку 10 минут."
+
+
+@dp.message(Command("reminders"))
+async def reminder_status_command(m: Message):
+    with connect() as c:
+        status = reminder_status_text(c, m.from_user.id)
+    await m.answer(status, reply_markup=kb([
+        [("🔔 Запустить 10 минут", "v2:activate10"),
+         ("📸 Тестовый мем", "v2:photo_test")],
+        [("⚙️ Настройки", "v2:settings"), ("🏠 Меню", "v2:home")],
+    ]))
 
 
 async def meme_update_loop():
@@ -727,10 +779,29 @@ v2_experience.install(
 )
 
 
+async def complete_picture_library():
+    """Do not block Telegram polling on external image downloads."""
+    from photo_memes import ensure_pack, upgrade_photos
+    try:
+        files = await asyncio.to_thread(ensure_pack)
+        print(f"Offline picture memes in library: {len(files)}", flush=True)
+        n = await asyncio.to_thread(upgrade_photos)
+        print(f"Licensed-photo picture memes available: {n}", flush=True)
+    except Exception as exc:
+        print(f"Picture library background build: {type(exc).__name__}: {exc}", flush=True)
+
+
 async def main():
     if not TOKEN or TOKEN == "put_your_token_here":
         raise RuntimeError("Set BOT_TOKEN in .env")
     init()
+    # Generate a usable offline picture-meme library before Telegram starts.
+    from photo_memes import ensure_pack, upgrade_photos
+    try:
+        ready = await asyncio.to_thread(ensure_pack, limit=21)
+        print(f"Picture memes ready at startup: {len(ready)}", flush=True)
+    except Exception as exc:
+        print(f"Picture meme bootstrap failed: {type(exc).__name__}: {exc}", flush=True)
     if os.getenv("MEME_LEGACY_CARDS", "0") == "1":
         try:
             await asyncio.to_thread(ensure_catalog, limit=16)
@@ -742,6 +813,7 @@ async def main():
     originals_task = (asyncio.create_task(originals_loop())
                       if os.getenv("MEME_LEGACY_CARDS", "0") == "1" else None)
     followups_task = asyncio.create_task(v2_experience.followup_loop(bot, connect, kb))
+    visual_task = asyncio.create_task(complete_picture_library())
     try:
         await dp.start_polling(bot)
     finally:
@@ -750,7 +822,8 @@ async def main():
         if originals_task:
             originals_task.cancel()
         followups_task.cancel()
-        await asyncio.gather(task, discovery_task, followups_task,
+        visual_task.cancel()
+        await asyncio.gather(task, discovery_task, followups_task, visual_task,
                              *([originals_task] if originals_task else []),
                              return_exceptions=True)
 
