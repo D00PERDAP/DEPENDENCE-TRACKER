@@ -113,6 +113,17 @@ def font(size):
     raise RuntimeError("Install fonts-dejavu-core to render Cyrillic meme images")
 
 def card(days: int, substance: str, variant: int = 0) -> bytes:
+    pack = ROOT / "assets" / "meme_pack"
+    ready = sorted(list(pack.glob("*.jpg")) + list(pack.glob("*.png")) + list(pack.glob("*.webp")))
+    if ready:
+        previous = getattr(card, "_previous", None)
+        choices = [p for p in ready if p != previous] or ready
+        chosen = random.choice(choices)
+        card._previous = chosen
+        with Image.open(chosen) as source:
+            output = BytesIO()
+            source.convert("RGB").save(output, format="PNG")
+            return output.getvalue()
     w, h = 960, 960
     im = Image.new("RGB", (w,h), "#101014")
     bg = background_photo(variant)
