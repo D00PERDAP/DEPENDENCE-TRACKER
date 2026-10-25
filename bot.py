@@ -120,6 +120,11 @@ async def send_test_meme(m: Message):
     """Send one approved local meme on request, never an unreviewed web image."""
     path = choose_meme("general")
     if not path:
+        for category in ("ex", "calls", "money", "travel"):
+            path = choose_meme(category)
+            if path:
+                break
+    if not path:
         await m.answer("Пока нет проверенных мемов. Сначала добавь картинку через meme_collector.py approve.")
         return
     from aiogram.types import FSInputFile
@@ -349,7 +354,7 @@ def choose_meme(category, previous=None):
     directory = Path(__file__).with_name("assets") / "memes" / category
     if not directory.exists():
         return None
-    items = [x for x in directory.iterdir() if x.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")]
+    items = [x for x in directory.iterdir() if x.is_file() and x.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp") and x.stat().st_size > 0]
     if not items:
         return None
     filtered = [x for x in items if x.name != previous] or items
