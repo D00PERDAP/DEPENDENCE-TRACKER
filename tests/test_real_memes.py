@@ -108,6 +108,12 @@ class PhotoSendTests(unittest.IsolatedAsyncioTestCase):
         self.patcher=patch.object(bot,"DB",Path(self.tmp.name)/"db.sqlite")
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
+        # Tests must never depend on actual local frame libraries on the VPS.
+        # The no-internet scenario explicitly simulates *no photos anywhere*.
+        for bank in (real_memes.reaction_bank, real_memes.mellstroy_bank):
+            empty=patch.object(bank,"templates",return_value=[])
+            empty.start()
+            self.addCleanup(empty.stop)
         bot.init()
         self.photo=photo_bytes()
         self.templates=[
@@ -136,6 +142,23 @@ class PhotoSendTests(unittest.IsolatedAsyncioTestCase):
         with bot.connect() as c:
             rows=c.execute("SELECT template_id FROM real_meme_sent WHERE user_id=?",(1357,)).fetchall()
             self.assertEqual(len(rows),2)
+
+    async def test_offline_local_photos_still_work_as_intended(self):
+        # A genuine local photo should still be sent if Imgflip is offline.
+        msg=type("FakeMessage",(),{"answer_photo":AsyncMock(),"answer":AsyncMock()})()
+        local={"id":"reaction-offline-image","path":"dummy.jpg",
+               "name":"Local approved photo","mood":"shock"}
+        with patch.object(real_memes.reaction_bank,"templates",return_value=[local]):
+            with patch.object(real_memes,"_source_bytes",return_value=self.photo):
+                with patch.object(real_memes,"_top_templates",
+                                  side_effect=OSError("Network down")) as api:
+                    with patch.object(real_memes,"_budget",return_value=False):
+                        result=await real_memes.send(
+                            msg,223,"Мефедрон","more",bot.connect)
+        self.assertTrue(result)
+        msg.answer_photo.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+        api.assert_not_called()
 
     async def test_no_internet_never_fake_cartoon(self):
         msg=type("FakeMessage",(),{"answer_photo":AsyncMock(),"answer":AsyncMock()})()
