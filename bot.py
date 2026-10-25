@@ -11,6 +11,7 @@ from aiogram.filters import CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile, InputMediaPhoto
 from dotenv import load_dotenv
 from meme_cards import card
+from context_memes import image as context_image
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
@@ -117,6 +118,7 @@ async def choose(q: CallbackQuery):
         if settings and settings["reminders"]:
             schedule(c, q.from_user.id, sid)
     await q.answer("Записано")
+    await send_context_meme(q.message, "record")
     await show(q.message, f"📝 {substance} — записано.\n\nНе смешивай вещества, не садись за руль. Если самочувствие ухудшается, обратись за помощью.\n\nВключить ненавязчивые проверки состояния?",
                kb([("🔔 Включить", "notify_on"), ("🔕 Не сейчас", "home")], [("🫀 Как я?", "feel")]))
 
@@ -148,6 +150,7 @@ async def mood(q: CallbackQuery):
     with db() as c:
         c.execute("INSERT INTO moods(user_id,at,mood) VALUES(?,?,?)", (q.from_user.id, iso(), value))
     await q.answer("Сохранено")
+    await send_context_meme(q.message, "ok" if value == "нормально" else "bad")
     if value == "тяжело":
         await show(q.message, "🫀 Отметил: тяжело.\n\nПобудь рядом с человеком, которому доверяешь. Если появились опасные симптомы — вызывай экстренную помощь. Не принимай новые вещества, пытаясь исправить состояние.",
                    kb([("🆘 Помощь", "help")], [("🏠 Меню", "home")]))
@@ -160,11 +163,19 @@ async def help_page(q: CallbackQuery):
     await show(q.message, "🆘 ЕСЛИ ПЛОХО\n\nПри судорогах, потере сознания, нарушении дыхания, сильной боли в груди, перегреве или выраженной спутанности — звони в местную экстренную службу (112 в России).\n\nНе оставайся один. Если человек без сознания, но дышит нормально — положи его на бок. Если не дышит нормально — следуй указаниям диспетчера по реанимации.\n\nСообщи медикам, что и когда было принято. Не смешивай вещества и не садись за руль.",
                kb([("🏠 Меню", "home")]))
 
+async def send_context_meme(message, event):
+    try:
+        picture = await context_image(event)
+        await message.answer_photo(BufferedInputFile(picture, filename="meme.png"),
+                                   caption="🗿 Пародийный мем по разделу, не реальная цитата.")
+    except Exception:
+        pass
+
 @dp.callback_query(F.data == "meme")
 async def meme(q: CallbackQuery):
     await q.answer()
     try:
-        picture = await asyncio.to_thread(card, -1, "", random.randrange(1_000_000))
+        picture = await context_image("random")
         markup = kb([("🎲 Ещё мем", "meme"), ("🏠 Меню", "home")])
         if q.message.photo:
             try:
@@ -194,6 +205,7 @@ async def history(q: CallbackQuery):
     text += "\n".join(f"• {x['started'][:16].replace('T',' ')} UTC — {x['substance']}" for x in recent) or "Записей пока нет."
     text += "\n\nЭто только журнал, не оценка здоровья или трезвости."
     await q.answer()
+    await send_context_meme(q.message, "history")
     await show(q.message, text, kb([("🏠 Меню", "home")]))
 
 @dp.callback_query(F.data == "notifications")
