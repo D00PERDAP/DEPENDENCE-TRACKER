@@ -477,16 +477,34 @@ async def delete_yes(q: CallbackQuery):
     await display(q.message, "История удалена из активной базы. Резервные копии на сервере удаляются отдельно.", kb([[("🏠 Меню", "home")]]))
 
 
-def choose_meme(category, previous=None):
-    import random
-    directory = Path(__file__).with_name("assets") / "memes" / category
-    if not directory.exists():
+def choose_meme(category, previous=None, user_id=None):
+    """Prefer a fresh, positively received local image; no unreviewed web files."""
+    root = Path(__file__).resolve().parent / "assets" / "memes"
+    folder = root / category
+    if not folder.is_dir():
         return None
-    items = [x for x in directory.iterdir() if x.is_file() and x.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp") and x.stat().st_size > 0]
-    if not items:
+    paths = [x for x in folder.iterdir()
+             if x.is_file() and x.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")
+             and x.stat().st_size > 0]
+    if not paths:
         return None
-    filtered = [x for x in items if x.name != previous] or items
-    return random.choice(filtered)
+    recent = set()
+    blocked = set()
+    if user_id is not None:
+        with connect() as c:
+            recent = {r[0] for r in c.execute(
+                "SELECT meme_key FROM meme_sends WHERE user_id=? ORDER BY id DESC LIMIT 25",
+                (user_id,)).fetchall()}
+            blocked = {r[0] for r in c.execute(
+                """SELECT meme_key FROM meme_votes GROUP BY meme_key
+                   HAVING COUNT(*) >= 4 AND
+                   SUM(CASE WHEN vote=-1 THEN 1 ELSE 0 END)*1.0/COUNT(*) >= 0.75"""
+            ).fetchall()}
+    allowed = [x for x in paths if meme_key(x) not in blocked and x.name != previous]
+    if not allowed:
+        return None
+    fresh = [x for x in allowed if meme_key(x) not in recent]
+    return random.choice(fresh or allowed)
 
 
 async def reminder_loop(bot):
@@ -523,10 +541,11 @@ async def reminder_loop(bot):
                     elif "друз" in lower or "звон" in lower: category = "calls"
                     elif "деньг" in lower or "трат" in lower: category = "money"
                     elif "ехат" in lower or "руль" in lower: category = "travel"
-                    path = choose_meme(category) or choose_meme("general")
+                    path = choose_meme(category, user_id=uid) or choose_meme("general", user_id=uid)
                     if path:
                         from aiogram.types import FSInputFile
-                        await bot.send_photo(uid, FSInputFile(path), caption=text[:1024])
+                        await bot.send_photo(uid, FSInputFile(path), caption=text[:1024], reply_markup=meme_buttons(path))
+                        record_meme(uid, path)
                     else:
                         await bot.send_message(uid, text)
                 except Exception as exc:
