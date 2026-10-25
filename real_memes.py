@@ -33,6 +33,8 @@ from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboar
 
 import meme_engine
 import mellstroy_bank
+import reaction_bank
+import joke_catalog
 
 ROOT = Path(__file__).resolve().parent
 CACHE = ROOT / "data" / "meme_photo_cache"
@@ -68,6 +70,7 @@ from dark_memes import LINES, choose_lines
 
 def init(connect):
     """Additional SQLite tables without touching existing user data."""
+    joke_catalog.init(connect)
     with connect() as c:
         c.executescript("""
             CREATE TABLE IF NOT EXISTS real_meme_sent(
@@ -403,23 +406,29 @@ def _ai_image(risk,seed):
     return base64.b64decode(answer["data"][0]["b64_json"])
 
 def _prepare(connect, uid, substance, risk, allow_paid=False):
-    """Use Mellstroy footage FIRST whenever the owner has imported real frames.
+    """Select a fresh one-sentence dark joke and a semantically matched REAL photo.
 
-    A curated reaction gets matched by its editorial mood label and the meme's
-    topic, with all 600 originals rotating before reuse. No AI face changes.
+    Priority: unlimited multi-person bank -> existing Mellstroy 600 bank ->
+    legally curated photo templates -> filtered Imgflip -> optional paid AI.
     """
     serial = meme_engine.next_serial(connect, uid)
     risk = risk if risk in LINES else "general"
+    joke = joke_catalog.select(connect, uid, risk, serial)
+    sentence = joke["text"].rstrip(".")
+    # Each picture has ONE sentence, not two unrelated captions.
+    top, bottom = "", sentence
     with connect() as c:
         recent = {str(row[0]) for row in c.execute(
-            "SELECT template_id FROM real_meme_sent WHERE user_id=?"
-            " ORDER BY serial DESC LIMIT 1200", (uid,)).fetchall()}
+            "SELECT template_id FROM real_meme_sent WHERE user_id=?",
+            (uid,)).fetchall()}
 
-    # Self-contained real stream frames need neither Imgflip nor a paid API.
-    actual = mellstroy_bank.templates(risk, seen=recent, limit=28)
-    using_mellstroy = bool(actual)
-    if using_mellstroy:
-        templates = actual
+    real = reaction_bank.templates(risk, seen=recent, limit=32,
+                                   desired_mood=joke["mood"])
+    if not real:
+        real = mellstroy_bank.templates(risk, seen=recent, limit=32)
+    using_real = bool(real)
+    if using_real:
+        templates = real
     else:
         templates = _curated_templates()
         try:
@@ -427,39 +436,38 @@ def _prepare(connect, uid, substance, risk, allow_paid=False):
         except Exception as exc:
             print(f"Imgflip catalog unavailable: {type(exc).__name__}: {exc}",
                   flush=True)
-        # Owner must explicitly enable Premium API and its daily budget.
         templates += _premium_templates(connect)
 
         def rank(t):
-            is_curated = "path" in t
+            curated = "path" in t
             matches = t.get("risk") in (risk, "general")
-            return 0 if is_curated and matches else 1 if not is_curated else 2
-
+            return 0 if curated and matches else 1 if not curated else 2
         random.shuffle(templates)
         templates.sort(key=lambda t: (1 if t["id"] in recent else 0,
                                       rank(t)))
-    top, bottom = _lines(risk, serial, substance)
 
-    # For a local Mellstroy bank, NEVER spend on AI-generated "lookalike" faces.
-    if not using_mellstroy and allow_paid and _budget(connect):
+    # Real people's faces are never generated or changed by an AI.
+    if not using_real and allow_paid and _budget(connect):
         try:
             photo = _ai_image(risk, serial)
-            return serial, "ai", compose(photo, top, bottom, serial, "AI фото")
+            return serial, "ai", compose(photo, top, bottom, serial, "AI фото"), joke["id"]
         except Exception as exc:
-            print(f"Paid photo provider failed: {type(exc).__name__}: {exc}",
+            print(f"Photo provider failed: {type(exc).__name__}: {exc}",
                   flush=True)
-
-    for tpl in templates[:8 if using_mellstroy else 4]:
+    for tpl in templates[:8 if using_real else 4]:
         try:
             photo = _source_bytes(tpl)
-            source = ("Реальный кадр" if tpl.get("id", "").startswith("mellstroy-")
-                      else "Imgflip" if "url" in tpl else "Фото автора")
-            return serial, tpl["id"], compose(photo, top, bottom, serial, source)
+            identifier = str(tpl["id"])
+            source_label = ("Кадр из коллекции" if identifier.startswith("reaction-")
+                            else "Кадр из видео" if identifier.startswith("mellstroy-")
+                            else "Imgflip" if "url" in tpl else "Фото автора")
+            payload = compose(photo, top, bottom, serial, source_label)
+            return serial, identifier, payload, joke["id"]
         except Exception as exc:
             print(f"Photo unavailable {tpl['id']}: "
                   f"{type(exc).__name__}: {exc}", flush=True)
-    raise RuntimeError("Нет доступных фотокадров: загрузите разрешённый "
-                       "видеоматериал в библиотеку или проверьте Imgflip.")
+    raise RuntimeError("Нет подходящих фото; загрузи разрешённые фотографии "
+                       "через /memes_add или проверь интернет.")
 
 def _keyboard(key):
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -469,7 +477,7 @@ def _keyboard(key):
          InlineKeyboardButton(text="🎯 Темы",callback_data="v2:memethemes")],
     ])
 
-def _record(connect,uid,serial,source,photo,text):
+def _record(connect,uid,serial,source,photo,text,joke_id=None):
     key=hashlib.sha256(f"{uid}:{serial}:{source}".encode()).hexdigest()[:16]
     today=datetime.now(timezone.utc).isoformat(timespec="seconds")
     with connect() as c:
@@ -478,21 +486,23 @@ def _record(connect,uid,serial,source,photo,text):
         c.execute("""INSERT INTO real_meme_sent
                      (user_id,serial,template_id,punchline,created_at)
                      VALUES(?,?,?,?,?)""",(uid,serial,str(source),text,today))
-        c.execute("""DELETE FROM real_meme_sent WHERE user_id=? AND serial NOT IN
-                  (SELECT serial FROM real_meme_sent WHERE user_id=?
-                   ORDER BY serial DESC LIMIT 1200)""",(uid,uid))
+        # Deliberately no fixed-size history purge: a growing image library
+        # should not repeat a frame after the first arbitrary 1200 sends.
+    if joke_id:
+        joke_catalog.mark_sent(connect,uid,joke_id,serial)
     return key
 
 async def send(message,uid,substance,risk,connect,*args,**kwargs):
     """Only send genuine photo memes or show a short actionable source error."""
     try:
-        serial,source,payload=await asyncio.to_thread(_prepare,connect,uid,substance,
-                                                       risk,True)
+        prepared=await asyncio.to_thread(_prepare,connect,uid,substance,risk,True)
+        serial,source,payload=prepared[:3]
+        joke_id=prepared[3] if len(prepared)>3 else None
         key=hashlib.sha256(f"{uid}:{serial}:{source}".encode()).hexdigest()[:16]
         await message.answer_photo(BufferedInputFile(payload,filename=f"meme-{serial}.jpg"),
                                    caption="🎭 Старый добрый мем",
                                    reply_markup=_keyboard(key))
-        _record(connect,uid,serial,source,payload,str(risk))
+        _record(connect,uid,serial,source,payload,str(risk),joke_id=joke_id)
         return True
     except Exception as exc:
         print(f"Photomeme delivery failed: {type(exc).__name__}: {exc}",flush=True)
@@ -504,9 +514,10 @@ async def send(message,uid,substance,risk,connect,*args,**kwargs):
 
 async def send_bot(bot,uid,substance,risk,connect,caption,reply_markup):
     # Never incur paid AI image charges for an automatic 10-minute reminder.
-    serial,source,payload=await asyncio.to_thread(_prepare,connect,uid,substance,
-                                                   risk,False)
+    prepared=await asyncio.to_thread(_prepare,connect,uid,substance,risk,False)
+    serial,source,payload=prepared[:3]
+    joke_id=prepared[3] if len(prepared)>3 else None
     await bot.send_photo(uid,BufferedInputFile(payload,filename=f"meme-{serial}.jpg"),
                          caption=caption[:1024],reply_markup=reply_markup)
-    _record(connect,uid,serial,source,payload,str(risk))
+    _record(connect,uid,serial,source,payload,str(risk),joke_id=joke_id)
     return True
