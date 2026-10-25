@@ -10,7 +10,6 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile, InputMediaPhoto
 from dotenv import load_dotenv
-from meme_cards import card
 from context_memes import image as context_image
 
 load_dotenv()
@@ -38,6 +37,7 @@ def init():
         CREATE TABLE IF NOT EXISTS companion (user_id INTEGER PRIMARY KEY, reminders INTEGER NOT NULL DEFAULT 0, quiet INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS checks (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, session_id INTEGER, due TEXT NOT NULL, body TEXT NOT NULL, sent INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE IF NOT EXISTS moods (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, at TEXT NOT NULL, mood TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS focus_goals (user_id INTEGER PRIMARY KEY, no_ex INTEGER NOT NULL DEFAULT 0);
         """)
 
 def now():
@@ -51,7 +51,7 @@ def kb(*rows):
 
 def menu():
     return kb([("📝 Записать", "record"), ("🫀 Как я?", "feel")],
-              [("🎲 Мем", "meme"), ("⚙️ Ещё", "more")])
+              [("🚫 Не звонить бывшей", "ex_toggle"), ("⚙️ Ещё", "more")])
 
 def active(c, uid):
     return c.execute("SELECT * FROM sessions WHERE user_id=? AND ended IS NULL ORDER BY id DESC LIMIT 1", (uid,)).fetchone()
@@ -124,9 +124,23 @@ async def choose(q: CallbackQuery):
 
 def schedule(c, uid, sid):
     c.execute("DELETE FROM checks WHERE user_id=? AND sent=0", (uid,))
-    for minutes, body in CHECKS:
-        c.execute("INSERT INTO checks(user_id,session_id,due,body) VALUES(?,?,?,?)",
-                  (uid, sid, iso(now()+timedelta(minutes=minutes)), body))
+    c.execute("INSERT INTO checks(user_id,session_id,due,body) VALUES(?,?,?,?)",
+              (uid, sid, iso(now()+timedelta(minutes=30)), "🗿 Проверка связи: как самочувствие?"))
+
+@dp.callback_query(F.data == "ex_toggle")
+async def ex_toggle(q: CallbackQuery):
+    uid = q.from_user.id
+    with db() as c:
+        row = c.execute("SELECT no_ex FROM focus_goals WHERE user_id=?", (uid,)).fetchone()
+        enabled = not bool(row and row["no_ex"])
+        c.execute("INSERT INTO focus_goals(user_id,no_ex) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET no_ex=excluded.no_ex", (uid, int(enabled)))
+    await q.answer("Цель включена" if enabled else "Цель выключена")
+    await show(q.message,
+        "🚫 ЦЕЛЬ: НЕ ЗВОНИТЬ БЫВШЕЙ\\n\\n" +
+        ("Включена. Во время открытой записи и при включённых уведомлениях буду напоминать каждые 30 минут. Это обычные уведомления Telegram со звуком, не телефонный звонок." if enabled else "Выключена.") +
+        "\\n\\nЧтобы напоминания приходили, включи уведомления в настройках.",
+        kb([("🔔 Уведомления", "notifications")], [("🏠 Меню", "home")]))
+
 
 @dp.callback_query(F.data == "end")
 async def end(q: CallbackQuery):
@@ -134,6 +148,7 @@ async def end(q: CallbackQuery):
         current = active(c, q.from_user.id)
         if current:
             c.execute("UPDATE sessions SET ended=? WHERE id=?", (iso(), current["id"]))
+            c.execute("DELETE FROM checks WHERE user_id=? AND sent=0", (q.from_user.id,))
     await q.answer("Запись закрыта")
     await home(q.message, q.from_user.id)
 
@@ -170,22 +185,6 @@ async def send_context_meme(message, event):
                                    caption="🗿 Пародийный мем по разделу, не реальная цитата.")
     except Exception:
         pass
-
-@dp.callback_query(F.data == "meme")
-async def meme(q: CallbackQuery):
-    await q.answer()
-    try:
-        picture = await context_image("random")
-        markup = kb([("🎲 Ещё мем", "meme"), ("🏠 Меню", "home")])
-        if q.message.photo:
-            try:
-                await q.message.edit_media(InputMediaPhoto(media=BufferedInputFile(picture, filename="meme.png"), caption="🗿 Мем-пародия. Береги себя."), reply_markup=markup)
-                return
-            except Exception:
-                pass
-        await q.message.answer_photo(BufferedInputFile(picture, filename="meme.png"), caption="🗿 Мем-пародия. Береги себя.", reply_markup=markup)
-    except Exception:
-        await show(q.message, "🗿 Мем временно не загрузился.\n\nГлавное правило: не натвори делов.", kb([("🏠 Меню", "home")]))
 
 @dp.callback_query(F.data == "more")
 async def more(q: CallbackQuery):
@@ -249,7 +248,7 @@ async def delete_yes(q: CallbackQuery):
     with db() as c:
         c.execute("DELETE FROM entries WHERE session_id IN (SELECT id FROM sessions WHERE user_id=?)", (uid,))
         c.execute("DELETE FROM goals WHERE session_id IN (SELECT id FROM sessions WHERE user_id=?)", (uid,))
-        for table in ("sessions", "users", "companion", "checks", "moods"):
+        for table in ("sessions", "users", "companion", "checks", "moods", "focus_goals"):
             c.execute(f"DELETE FROM {table} WHERE user_id=?", (uid,))
     await q.answer("Удалено")
     await home(q.message, uid)
@@ -258,20 +257,36 @@ async def reminder_loop(bot):
     while True:
         try:
             with db() as c:
-                pending = c.execute("SELECT id,user_id,body FROM checks WHERE sent=0 AND due<=? ORDER BY id LIMIT 30", (iso(),)).fetchall()
+                pending = c.execute("SELECT id,user_id,session_id,body FROM checks WHERE sent=0 AND due<=? ORDER BY id LIMIT 30", (iso(),)).fetchall()
             for item in pending:
                 with db() as c:
                     enabled = c.execute("SELECT reminders FROM companion WHERE user_id=?", (item["user_id"],)).fetchone()
-                    if not enabled or not enabled["reminders"]:
-                        c.execute("UPDATE checks SET sent=1 WHERE id=?", (item["id"],))
-                        continue
+                    session = active(c, item["user_id"])
+                    focus = c.execute("SELECT no_ex FROM focus_goals WHERE user_id=?", (item["user_id"],)).fetchone()
+                    valid = bool(enabled and enabled["reminders"] and session and session["id"] == item["session_id"])
+                    # 24-hour hard cap: prevent an accidentally forgotten session from notifying forever.
+                    if valid and (now() - datetime.fromisoformat(session["started"])).total_seconds() > 86400:
+                        valid = False
+                    c.execute("UPDATE checks SET sent=1 WHERE id=?", (item["id"],))
+                    if valid:
+                        c.execute("INSERT INTO checks(user_id,session_id,due,body) VALUES(?,?,?,?)",
+                                  (item["user_id"], session["id"], iso(now()+timedelta(minutes=30)), item["body"]))
+                if not valid:
+                    continue
+                is_ex = bool(focus and focus["no_ex"])
+                msg = ("🚫 НЕ ЗВОНИ БЫВШЕЙ. Отложи сообщения и решения до завтра.\\n\\n" if is_ex else "")
+                msg += "🫀 Проверка связи: как дыхание, сознание и самочувствие? Если опасные симптомы — вызывай экстренную помощь."
                 try:
-                    await bot.send_message(item["user_id"], item["body"], reply_markup=kb([("🫀 Как я?", "feel"), ("🔕 Выключить", "notify_off")]))
+                    picture = await context_image("ex" if is_ex else "reminder")
+                    await bot.send_photo(item["user_id"], BufferedInputFile(picture, filename="reminder.png"),
+                                         caption=msg, disable_notification=False,
+                                         reply_markup=kb([("🫀 Как я?", "feel"), ("⏹ Закончить", "end")],
+                                                         [("🔕 Выключить", "notify_off")]))
                 except Exception:
-                    pass
-                finally:
-                    with db() as c:
-                        c.execute("UPDATE checks SET sent=1 WHERE id=?", (item["id"],))
+                    try:
+                        await bot.send_message(item["user_id"], msg, disable_notification=False)
+                    except Exception:
+                        pass
         except Exception:
             import logging
             logging.exception("Reminder worker error")
