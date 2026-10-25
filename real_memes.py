@@ -341,7 +341,7 @@ def compose(photo_bytes,top,bottom,serial,source_label="Imgflip"):
             x1, y1 = max(0, fx-pad), max(0, fy-pad)
             x2, y2 = min(SIZE[0], fx+fw+pad), min(SIZE[1], fy+fh+pad)
             head = cover.crop((x1, y1, x2, y2))
-            hw, hh = int(head.width*1.5), int(head.height*1.5)
+            hw, hh = int(head.width*1.85), int(head.height*1.55)
             head = head.resize((hw, hh), Image.Resampling.BICUBIC)
             mask = Image.new("L", (hw, hh), 0)
             ImageDraw.Draw(mask).ellipse((2, 2, hw-2, hh-2), fill=255)
@@ -350,17 +350,14 @@ def compose(photo_bytes,top,bottom,serial,source_label="Imgflip"):
     except (ImportError, Exception) as exc:
         print(f"Face effect skipped: {exc}", flush=True)
 
-    # Deliberately crunchy photo; render lettering afterwards so it stays sharp.
-    tiny = cover.resize((320, 360), Image.Resampling.BILINEAR)
-    intermediate = io.BytesIO()
-    tiny.save(intermediate, "JPEG", quality=28, subsampling=2)
-    intermediate.seek(0)
-    with Image.open(intermediate) as decoded:
-        cover = decoded.convert("RGB").resize(SIZE, Image.Resampling.NEAREST)
-    angle = random.choice([-4, -2, 0, 2, 4])
-    if angle:
-        cover = cover.rotate(angle, resample=Image.Resampling.BICUBIC,
-                             expand=False, fillcolor=(25, 20, 25))
+    # VHS-like horizontal glitches, without tilting the frame.
+    source = cover
+    warped = cover.copy()
+    for y0 in range(0, SIZE[1], 28):
+        shift = random.randint(-13, 13)
+        stripe = source.crop((0, y0, SIZE[0], min(y0+28, SIZE[1])))
+        warped.paste(stripe, (shift, y0))
+    cover = warped
     overlay=Image.new("RGBA",SIZE,(0,0,0,0))
     layer=ImageDraw.Draw(overlay)
     # Transparent shadows, not 90% black poster cards; original image stays visible.
@@ -379,7 +376,14 @@ def compose(photo_bytes,top,bottom,serial,source_label="Imgflip"):
     draw.text((13,SIZE[1]-15),credit,font=_font(11),fill="#EEE7E0",
               stroke_width=2,stroke_fill="#202027")
     buf=io.BytesIO()
-    cover.save(buf,"JPEG",quality=65,optimize=True)
+    # Compress photo AND Cyrillic lettering together for authentic crunchy memes.
+    small = cover.resize((310, 350), Image.Resampling.BILINEAR)
+    compressed = io.BytesIO()
+    small.save(compressed, "JPEG", quality=24, subsampling=2)
+    compressed.seek(0)
+    with Image.open(compressed) as decoded:
+        cover = decoded.convert("RGB").resize(SIZE, Image.Resampling.NEAREST)
+    cover.save(buf, "JPEG", quality=45, subsampling=2)
     return buf.getvalue()
 
 def _lines(risk, serial, substance=""):
