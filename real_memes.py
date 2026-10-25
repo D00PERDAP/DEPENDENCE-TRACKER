@@ -489,7 +489,7 @@ def _record(connect,uid,serial,source,photo,text,joke_id=None):
         # Deliberately no fixed-size history purge: a growing image library
         # should not repeat a frame after the first arbitrary 1200 sends.
     if joke_id:
-        joke_catalog.mark_sent(connect,uid,joke_id,serial)
+        joke_catalog.mark_sent(connect,uid,joke_id,serial,meme_key=key)
     return key
 
 async def send(message,uid,substance,risk,connect,*args,**kwargs):
