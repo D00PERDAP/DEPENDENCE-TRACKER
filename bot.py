@@ -672,10 +672,21 @@ async def reminder_loop(bot):
                             BufferedInputFile(data, filename="reminder-meme.jpg"),
                             caption=caption[:1024], reply_markup=keyboard)
                     else:
-                        await bot.send_photo(uid, FSInputFile(path),
-                                             caption=caption[:1024],
-                                             reply_markup=keyboard)
-                        record_meme(uid, path)
+                        try:
+                            await bot.send_photo(uid, FSInputFile(path),
+                                                 caption=caption[:1024],
+                                                 reply_markup=keyboard)
+                            record_meme(uid, path)
+                        except Exception as stored_exc:
+                            print(f"Stored reminder picture failed; trying fresh JPG: "
+                                  f"{type(stored_exc).__name__}: {stored_exc}", flush=True)
+                            from aiogram.types import BufferedInputFile
+                            from photo_memes import inline_picture
+                            data = await asyncio.to_thread(inline_picture,
+                                                           session["substance"], risk)
+                            await bot.send_photo(uid,
+                                BufferedInputFile(data, filename="reminder-meme.jpg"),
+                                caption=caption[:1024], reply_markup=keyboard)
                 except Exception as exc:
                     # Leave an audit trail and try again in one minute, rather
                     # than advancing the timer without delivering anything.
