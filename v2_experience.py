@@ -158,7 +158,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
         with connect() as c:
             settings = db.get_settings(c, q.from_user.id)
         rows = [[(name, f"v2:med:{i}")] for i, name in enumerate(safety.SUBSTANCES)]
-        rows.append([("⬅️ Назад", "v2:home")])
+        rows.append([("⬅️ Обратно, брат", "v2:home")])
         await panel(q, "🆘 ПОМОЩЬ ПО ВЕЩЕСТВУ\n\n"
                     "Что принимал(а)? Если не знаешь — последний пункт.\n"
                     "Если проблемы с дыханием, сильная боль в груди, потеря сознания, "
@@ -257,7 +257,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             with connect() as c:
                 settings, session = setup_state(c, uid)
                 count = len(picked(c, uid))
-            text = ("💀 НЕ НАТВОРИ ДЕЛОВ\n\n"
+            text = ("💀 НЕ НАТВОРИ ДЕЛОВ 🦅\n\n"
                     f"{'🔴 Сопровождение активно' if session else '⚪ Сессия не начата'}\n"
                     f"Твоих запретов: {count}\n"
                     f"Напоминания: {'не включены' if not session else '⏸ тишина' if settings['quiet'] else str(settings['base_interval']) + ' минут'}\n\n"
@@ -296,14 +296,14 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 if int(param) < 0:
                     raise IndexError
             except (ValueError, IndexError):
-                return await panel(q, "Неизвестный пункт.", [[("⬅️ Назад", "v2:start")]])
+                return await panel(q, "Неизвестный пункт.", [[("⬅️ Обратно, брат", "v2:start")]])
             with connect() as c:
                 db.set_setting(c, uid, last_substance=substance)
             return await panel(q, f"✅ {substance}\n\n"
                                "Как часто присылать напоминания? Начнём сразу после выбора.", [
                 [("⚡ Каждые 10 мин", "v2:freq:10"), ("🔔 15 мин", "v2:freq:15")],
                 [("🕒 30 мин", "v2:freq:30"), ("🌙 60 мин", "v2:freq:60")],
-                [("☑️ Мои запреты", "check"), ("⬅️ Назад", "v2:start")]])
+                [("☑️ Мои запреты", "check"), ("⬅️ Обратно, брат", "v2:start")]])
 
         if action in ("freq", "setfreq"):
             try:
@@ -311,7 +311,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 if minutes not in (10, 15, 30, 60):
                     raise ValueError
             except ValueError:
-                return await panel(q, "Неверная частота.", [[("⬅️ Назад", "v2:settings")]])
+                return await panel(q, "Неверная частота.", [[("⬅️ Обратно, брат", "v2:settings")]])
             with connect() as c:
                 settings, session = setup_state(c, uid)
                 if action == "setfreq" and not session:
@@ -363,7 +363,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                          "Первое тестовое фото отправляю прямо сейчас.\n"
                          "При необходимости выключи рассылку в настройках.", [
                 [("📸 Ещё тестовый мем", "v2:photo_test"),
-                 ("⚙️ Настройки", "v2:settings")],
+                 ("⚙️ Настройки, вацок", "v2:settings")],
                 [("🏠 Меню", "v2:home")],
             ])
             return await real_memes.send(q.message, uid, substance,
@@ -499,7 +499,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 if int(param) < 0:
                     raise IndexError
             except (ValueError, IndexError):
-                return await panel(q, "Неизвестное вещество.", [[("⬅️ Назад", "v2:safety")]])
+                return await panel(q, "Неизвестное вещество.", [[("⬅️ Обратно, брат", "v2:safety")]])
             with connect() as c:
                 db.set_setting(c, uid, last_substance=substance)
             return await show_symptoms(q)
@@ -530,7 +530,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             ])
 
         if action == "memethemes":
-            return await panel(q, "🎭 МЕМЫ ПО ТЕМАМ\n\nВыбери что-то одно — сразу пришлю фотомем.", [
+            return await panel(q, "😂 МЕМЫ ДЛЯ ВАЦОКА\n\nВыбирай тему, брат, сейчас будет прикол!", [
                 [("🤦 Неловкие решения", "v2:memerisk:general"),
                  ("🔥 Продолжить", "v2:memerisk:more")],
                 [("💔 Бывшая", "v2:memerisk:ex"),
@@ -601,7 +601,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             ]
             if not session:
                 rows.insert(0, [("▶️ Начать сопровождение", "v2:start")])
-            return await panel(q, "⚙️ НАПОМИНАНИЯ\n\n" + status +
+            return await panel(q, "⏰ НАПОМИНАНИЯ, БРАТ\n\n" + status +
                                "\n\nРассылка действует до её отключения или завершения сессии.",
                                rows)
 
@@ -614,8 +614,8 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     minutes = int(settings["base_interval"])
                     db.schedule_alert(c, uid, session["id"], minutes, now())
             return await panel(q, "⏸ Напоминания выключены." if new_value else
-                               "🔔 Напоминания снова включены.", [
-                [("⚙️ Настройки", "v2:settings"), ("🏠 Меню", "v2:home")],
+                               "⏰ Напомни, брат снова включены.", [
+                [("⚙️ Настройки, вацок", "v2:settings"), ("🏠 Меню", "v2:home")],
             ])
 
         if action == "finish":
