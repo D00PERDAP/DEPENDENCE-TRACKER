@@ -5,12 +5,11 @@ import socket
 import io
 import json
 import re
-import re
 import urllib.request
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urljoin, urlparse, quote, urlsplit, urlunsplit
+from urllib.parse import urljoin, urlparse, quote, urlsplit, urlunsplit, urlencode
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 ROOT = Path(__file__).resolve().parent
@@ -23,12 +22,18 @@ MAX_PER_SOURCE = 12
 ALLOWED = {"image/jpeg", "image/png", "image/webp"}
 BLOCK = ("avatar", "logo", "icon", "emoji", "favicon", "banner", "pixel", "tracking", "ads")
 TOPIC = re.compile(r"наркот|нарком|мефедрон|меф|соль|соли|амфетамин|кокаин|героин|каннабис|марихуан|гашиш|мдма|mdma|lsd|лсд|кетамин|психоделик|упорот|прикол|мем", re.I)
+PINTEREST_TERMS = ("меф мемы", "Паша Техник мемы", "наркоманские мемы", "упоротые мемы")
+PINTEREST_SEARCHES = [
+    "https://www.pinterest.com/search/pins/?" + urlencode({"q": term})
+    for term in PINTEREST_TERMS
+]
 SOURCES = [
     "https://memarium.fun/memy-pro/narkomanov/",
     "https://memepedia.ru/ooaoaa-mmm/",
     "https://memepedia.ru/lovite-narkomana/",
     "https://reactor.cc/search/Наркотики+мемы",
     "https://t.me/s/memsearch?before=7758",
+    *PINTEREST_SEARCHES,
 ]
 
 
@@ -114,11 +119,13 @@ def run():
             parser = Images(source)
             parser.feed(html.decode(charset, errors="replace"))
             print("Source:", source, "image links:", len(parser.urls))
+            if source in PINTEREST_SEARCHES and not parser.urls:
+                print("Pinterest search has no accessible image metadata; no bypass attempted.")
             for url in parser.urls[:MAX_PER_SOURCE]:
                 if url in seen_urls:
                     continue
                 # Reject unrelated image filenames, not merely pages with matching search terms.
-                if not TOPIC.search(urlparse(url).path):
+                if source not in PINTEREST_SEARCHES and not TOPIC.search(urlparse(url).path):
                     continue
                 try:
                     data, content_type, _ = fetch(url, MAX_IMAGE)
