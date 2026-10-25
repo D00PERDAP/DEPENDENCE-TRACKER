@@ -71,13 +71,35 @@ class TelegramMemePhotoTests(unittest.IsolatedAsyncioTestCase):
             msg.answer.assert_not_awaited()
             self.assertEqual(seen, [(42, picture)])
 
-    async def test_unavailable_picture_explains_error_not_fake_meme(self):
+    async def test_unwritable_asset_directory_still_sends_jpeg(self):
         msg = type("FakeMessage", (), {
             "answer_photo": AsyncMock(), "answer": AsyncMock()
         })()
-        with patch.object(context_memes, "candidates", return_value=[]):
-            with patch.object(context_memes, "choose_photo", return_value=None):
-                with patch.object(photo_memes, "ensure_pack", return_value=[]):
+        with patch.object(context_memes, "choose_photo", return_value=None):
+            with patch.object(photo_memes, "ensure_pack",
+                              side_effect=PermissionError("read-only directory")):
+                result = await context_memes.send(
+                    msg, 42, "Мефедрон", "more",
+                    bot.connect, lambda _: "a" * 16,
+                    lambda uid, p: None, lambda p: None,
+                )
+        self.assertTrue(result)
+        msg.answer_photo.assert_awaited_once()
+        msg.answer.assert_not_awaited()
+        payload = msg.answer_photo.await_args.args[0]
+        with Image.open(io.BytesIO(payload.data)) as image:
+            self.assertEqual(image.format, "JPEG")
+            self.assertEqual(image.size, (850, 850))
+
+    async def test_generator_failure_is_visible_not_disguised_as_joke(self):
+        msg = type("FakeMessage", (), {
+            "answer_photo": AsyncMock(), "answer": AsyncMock()
+        })()
+        with patch.object(context_memes, "choose_photo", return_value=None):
+            with patch.object(photo_memes, "ensure_pack",
+                              side_effect=PermissionError("read-only directory")):
+                with patch.object(photo_memes, "inline_picture",
+                                  side_effect=RuntimeError("pillow missing font")):
                     result = await context_memes.send(
                         msg, 42, "Мефедрон", "more",
                         bot.connect, lambda _: "a" * 16,
@@ -85,7 +107,7 @@ class TelegramMemePhotoTests(unittest.IsolatedAsyncioTestCase):
                     )
         self.assertFalse(result)
         msg.answer_photo.assert_not_awaited()
-        self.assertIn("библиотека изображений", msg.answer.await_args.args[0])
+        self.assertIn("Ошибка записана", msg.answer.await_args.args[0])
 
 
 class ReminderScheduleTests(unittest.TestCase):
