@@ -23,7 +23,7 @@ FEEDS = ROOT / "data" / "meme_feeds.txt"
 MEDIA = ROOT / "assets" / "memes"
 CATEGORIES = {"ex", "calls", "money", "travel", "general"}
 DEFAULT_FEEDS = [("general", "https://pikabu.ru/xmlfeeds.php?cmd=popular")]
-KEYWORDS = re.compile(r"наркот|нарком|меф|солев|трезв|зависим|упорот|бывш|звон|сообщени|такси|трат|потрат|денег|деньги|алкогол|бух|запой|похмел", re.I)
+KEYWORDS = re.compile(r"наркот|нарком|мефедрон|мефчик|солев(ой|ые|ик)|упорот|под веществ|психоактив|зависимост|передоз|ломк|трезвост|похмел|запой", re.I)
 
 SEEDS = [
     ("general", "ооаоаа) ммм)) — постироничный наркоманский мем", "https://memepedia.ru/ooaoaa-mmm/"),
