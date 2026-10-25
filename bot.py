@@ -75,8 +75,9 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
-def iso():
-    return utcnow().isoformat(timespec="seconds")
+def iso(value=None):
+    """Format a datetime; defaults to current UTC for legacy callers."""
+    return (value if value is not None else utcnow()).isoformat(timespec="seconds")
 
 
 def init():
