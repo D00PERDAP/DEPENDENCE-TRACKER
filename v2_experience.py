@@ -263,12 +263,13 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     f"Напоминания: {'не включены' if not session else '⏸ тишина' if settings['quiet'] else str(settings['base_interval']) + ' минут'}\n\n"
                     "Что нужно прямо сейчас?")
             await panel(q, text, [
-                [("▶️ Начать / настроить", "v2:start"), ("☑️ Мои запреты", "check")],
-                [("🫀 Как я?", "v2:checkin"), ("🆘 Мне плохо", "v2:safety")],
-                [("🔥 Останови меня", "v2:impulses")],
-                [("📊 Моя статистика", "v2:stats"), ("🎭 Мем", "v2:meme")],
-                [("⚙️ Напоминания", "v2:settings")],
-                *([[("⏹ Завершить", "v2:finish")]] if session else []),
+                [("😂 ДАЙ МЕМ", "v2:meme")],
+                [("🔥 Меня несёт", "v2:impulses"), ("🫀 Как я?", "v2:checkin")],
+                [("🔔 Напоминания", "v2:settings"), ("🆘 Мне плохо", "v2:safety")],
+                [("☑️ Мои запреты", "check"), ("📊 Статистика", "v2:stats")],
+                [("🎯 Мемы по темам", "v2:memethemes")],
+                *([[( "⏹ Завершить", "v2:finish")]] if session else
+                  [[("▶️ Начать сопровождение", "v2:start")]]),
             ])
             return
 
@@ -526,6 +527,28 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             return await panel(q, safety.EMERGENCY_TEXT, [
                 [("🆘 Другие симптомы", "v2:questions")], [("🏠 Меню", "v2:home")],
             ])
+
+        if action == "memethemes":
+            return await panel(q, "🎭 МЕМЫ ПО ТЕМАМ\n\nВыбери что-то одно — сразу пришлю фотомем.", [
+                [("🤦 Неловкие решения", "v2:memerisk:general"),
+                 ("🔥 Продолжить", "v2:memerisk:more")],
+                [("💔 Бывшая", "v2:memerisk:ex"),
+                 ("📞 Звонки", "v2:memerisk:contacts")],
+                [("💸 Деньги", "v2:memerisk:money"),
+                 ("🌚 Бессонница", "v2:memerisk:sleep")],
+                [("🚕 Куда-то ехать", "v2:memerisk:travel"),
+                 ("👀 Тревога", "v2:memerisk:paranoia")],
+                [("🎲 Случайный мем", "v2:meme"),
+                 ("🏠 Меню", "v2:home")],
+            ])
+
+        if action == "memerisk":
+            if param not in real_memes.LINES:
+                return await panel(q, "Тема не найдена.", [[("🏠 Меню", "v2:home")]])
+            with connect() as c:
+                settings, session = setup_state(c, uid)
+                substance = session["substance"] if session else settings["last_substance"]
+            return await real_memes.send(q.message, uid, substance, param, connect)
 
         if action == "meme":
             with connect() as c:
