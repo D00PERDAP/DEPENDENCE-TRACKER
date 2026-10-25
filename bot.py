@@ -45,7 +45,7 @@ def keyboard(rows):
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t, callback_data=v) for t,v in row] for row in rows])
 
 def main_kb():
-    return keyboard([[('🎲 Мем','meme'),('📝 Записать','session')], [('📊 Мой прогресс','stats')]])
+    return keyboard([[('🎲 Мем','meme'),('📝 Записать','session')], [('📊 Мой прогресс','stats'), ('⚙️ Ещё','more')]])
 
 def active(c, uid):
     return c.execute('SELECT * FROM sessions WHERE user_id=? AND ended IS NULL ORDER BY id DESC LIMIT 1', (uid,)).fetchone()
@@ -84,8 +84,6 @@ async def send_card(message, uid, menu=False):
                 return
             except Exception:
                 pass
-        elif not isinstance(message, Message):
-            pass
         await message.answer_photo(BufferedInputFile(picture, filename='meme.png'), caption=subtitle, reply_markup=kb)
     except Exception:
         await message.answer('🗿 НЕ СЕГОДНЯ\\n' + subtitle, reply_markup=kb)
