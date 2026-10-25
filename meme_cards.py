@@ -22,8 +22,8 @@ def _request(url):
 def _commons_photo(variant):
     CACHE.mkdir(parents=True, exist_ok=True)
     existing = sorted(CACHE.glob("putin_*.jpg"))
-    if len(existing) >= 5:
-        return existing[variant % len(existing)]
+    if len(existing) >= 12:
+        return random.choice(existing)
     params = {
         "action": "query", "format": "json", "generator": "search",
         "gsrsearch": SEARCHES[variant % len(SEARCHES)],
@@ -37,7 +37,7 @@ def _commons_photo(variant):
     for page in data.get("query", {}).get("pages", {}).values():
         info = (page.get("imageinfo") or [{}])[0]
         lic = html.unescape(info.get("extmetadata", {}).get("LicenseShortName", {}).get("value", "")).lower()
-        if lic not in ("public domain", "cc0", "cc0 1.0", "pd"):
+        if not (lic in ("public domain", "cc0", "cc0 1.0", "pd") or lic.startswith("cc by")):
             continue
         if info.get("mime") not in ("image/jpeg", "image/png"):
             continue
@@ -59,7 +59,7 @@ def _commons_photo(variant):
             return target
         except Exception:
             continue
-    return existing[variant % len(existing)] if existing else None
+    return random.choice(existing) if existing else None
 
 def background_photo(variant):
     manual = ROOT / "assets" / "putin.jpg"
@@ -108,7 +108,8 @@ def card(days: int, substance: str, variant: int = 0) -> bytes:
     parts = textwrap.wrap(slogan, width=22)
     for i, part in enumerate(parts[:3]):
         d.text((480, 800 + i*53), part, font=font(42), anchor="mm", fill="#ffdf58", stroke_width=1, stroke_fill="#000000")
-    d.text((480, 930), "ПО ДАННЫМ ТВОЕГО ЖУРНАЛА • НЕ МЕДИЦИНСКАЯ ОЦЕНКА", font=font(18), anchor="mm", fill="#c7c7cc")
+    d.text((480, 920), "ПО ДАННЫМ ЖУРНАЛА • НЕ МЕДИЦИНСКАЯ ОЦЕНКА", font=font(17), anchor="mm", fill="#c7c7cc")
+    d.text((480, 946), "ФОТО: WIKIMEDIA COMMONS / АВТОРЫ НА СТРАНИЦАХ ФАЙЛОВ • КОЛЛАЖ ИЗМЕНЁН", font=font(13), anchor="mm", fill="#c7c7cc")
     output = BytesIO()
     im.save(output, format="PNG", optimize=True)
     return output.getvalue()
