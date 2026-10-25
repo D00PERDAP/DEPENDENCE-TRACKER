@@ -1165,6 +1165,7 @@ v2_experience.install(
     dp, connect=connect, active=active, picked=picked, ensure_preset=ensure_preset,
     kb=kb, display=display, now=utcnow, stamp=iso,
     meme_key=meme_key, record_meme=record_meme, meme_buttons=meme_buttons,
+    is_admin=is_meme_admin_id,
 )
 
 
