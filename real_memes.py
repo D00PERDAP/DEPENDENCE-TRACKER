@@ -503,10 +503,6 @@ def _prepare(connect, uid, substance, risk, allow_paid=False):
         local = []
         attempts.append(f"reaction_bank: {type(exc).__name__}: {exc}")
         print(f"Reaction photo bank failed: {type(exc).__name__}: {exc}", flush=True)
-    for item in local[:16]:
-        result = try_photo(item, "Кадр из коллекции")
-        if result is not None:
-            return result
 
     try:
         legacy = mellstroy_bank.templates(risk, seen=recent, limit=32)
@@ -515,10 +511,6 @@ def _prepare(connect, uid, substance, risk, allow_paid=False):
         attempts.append(f"mellstroy_bank: {type(exc).__name__}: {exc}")
         print(f"Legacy Mellstroy bank failed: {type(exc).__name__}: {exc}",
               flush=True)
-    for item in legacy[:16]:
-        result = try_photo(item, "Кадр из видео")
-        if result is not None:
-            return result
 
     try:
         approved = _curated_templates()
@@ -532,8 +524,15 @@ def _prepare(connect, uid, substance, risk, allow_paid=False):
         1 if item.get("id") in recent else 0,
         0 if item.get("risk") in (risk, "general") else 1,
     ))
-    for item in approved[:12]:
-        result = try_photo(item, "Фото автора")
+    # Mix every local source, not only the first nonempty collection.
+    # Fresh frames take priority; Mellstroy and new people remain in rotation.
+    pool = [(item, "Кадр из коллекции") for item in local]
+    pool += [(item, "Кадр из видео") for item in legacy]
+    pool += [(item, "Фото автора") for item in approved]
+    random.shuffle(pool)
+    pool.sort(key=lambda pair: pair[0].get("id") in recent)
+    for item, credit in pool:
+        result = try_photo(item, credit)
         if result is not None:
             return result
 
