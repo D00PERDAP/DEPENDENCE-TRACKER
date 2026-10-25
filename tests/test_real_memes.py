@@ -12,6 +12,7 @@ from PIL import Image, ImageDraw
 
 import bot
 import real_memes
+import dark_memes
 
 
 def photo_bytes():
@@ -25,6 +26,26 @@ def photo_bytes():
 
 
 class InternetTemplateTests(unittest.TestCase):
+    def test_dark_drug_caption_bank_is_profanely_varied_and_unbranded(self):
+        all_pairs = [pair for pairs in dark_memes.LINES.values() for pair in pairs]
+        all_pairs += [pair for pairs in dark_memes.SUBSTANCE_LINES.values() for pair in pairs]
+        self.assertGreaterEqual(len(all_pairs), 130)
+        words = " ".join(" ".join(pair) for pair in all_pairs)
+        self.assertNotIn("НЕ НАТВОРИ ДЕЛОВ", words)
+        self.assertNotIn("TELEGRAM-БОТ", words)
+        self.assertTrue(any(x in words for x in ("БЛЯТЬ", "НАХУЙ", "ЕБАН")))
+        self.assertGreaterEqual(len(dark_memes.SUBSTANCE_LINES), 10)
+        self.assertEqual(len(all_pairs), len(set(all_pairs)))
+
+    def test_caption_rotation_includes_short_bottom_only_and_meph_jokes(self):
+        top, bottom = real_memes._lines("general", 1, "Мефедрон")
+        self.assertEqual(top, "")
+        self.assertTrue(bottom)
+        top2, bottom2 = real_memes._lines("ex", 3, "Мефедрон")
+        self.assertIn("МЕФ", top2 + bottom2)
+        seen = {real_memes._lines("money", n, "Мефедрон") for n in range(1, 22)}
+        self.assertGreaterEqual(len(seen), 12)
+
     def test_free_imgflip_api_filters_cartoon_and_minors(self):
         data={"success":True,"data":{"memes":[
             {"id":"1","name":"Distracted Boyfriend","url":"https://i.imgflip.com/abc.jpg","width":1200,"height":800},
