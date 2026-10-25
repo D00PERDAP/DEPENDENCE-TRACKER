@@ -1,0 +1,24 @@
+.env
+.env.*
+!.env.example
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+tracker.db
+tracker.db-*
+data/
+backups/
+*.log
+.DS_Store
+
+# Locally generated original memes (regenerable; do not ignore approved uploads)
+assets/memes/**/original_*.jpg
+
+# Generated picture meme pack (re-created automatically on VPS)
+assets/memes/contextual/**/illustrated_*.jpg
+assets/memes/contextual/**/photo_*.jpg
+
+# Large raw videos and reaction frames MUST stay on VPS, never in GitHub
+imports/
+mellstroy_sources/
