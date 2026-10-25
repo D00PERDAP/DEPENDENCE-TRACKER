@@ -16,6 +16,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from dotenv import load_dotenv
 from meme_studio import ensure_catalog
 import context_memes
+import meme_engine
 import v2_data
 import v2_experience
 
@@ -94,6 +95,7 @@ def init():
         );
         """)
     v2_data.migrate(connect)
+    meme_engine.init(connect)
 
 
 def kb(rows):
@@ -181,20 +183,19 @@ def record_meme(uid, path):
 
 
 async def deliver_meme(message, uid, category="general"):
-    """Backwards-compatible photo-only API: no text-only joke fallback."""
+    """Historical entry point, now always returns a freshly rendered image."""
     map_risk = {"ex": "ex", "calls": "contacts", "money": "money",
                 "travel": "travel", "general": "general"}
     with connect() as c:
         session = active(c, uid)
         settings = v2_data.get_settings(c, uid)
         substance = session["substance"] if session else settings["last_substance"]
-    return await context_memes.send(message, uid, substance,
-                                    map_risk.get(category, "general"), connect,
-                                    meme_key, record_meme, meme_buttons)
+    return await meme_engine.send(message, uid, substance,
+                                  map_risk.get(category, "general"), connect)
 
 
 async def send_situation_meme(message, uid):
-    """Approved old-school photo if context matches, not the old quote-card generator."""
+    """Each /meme and button click gets a distinct, contextual cartoon JPEG."""
     with connect() as c:
         session = active(c, uid)
         settings = v2_data.get_settings(c, uid)
@@ -206,8 +207,7 @@ async def send_situation_meme(message, uid):
             (uid, v2_data.stamp(utcnow() - timedelta(hours=3)))
         ).fetchone()
         risk = risk_row["tag"] if risk_row else v2_experience.risk_from_titles(titles)
-    return await context_memes.send(message, uid, substance, risk, connect,
-                                    meme_key, record_meme, meme_buttons)
+    return await meme_engine.send(message, uid, substance, risk, connect)
 
 
 @dp.message(Command("meme"))
@@ -565,6 +565,8 @@ async def delete_yes(q: CallbackQuery):
         c.execute("DELETE FROM users WHERE user_id=?", (uid,))
         c.execute("DELETE FROM meme_sends WHERE user_id=?", (uid,))
         c.execute("DELETE FROM meme_votes WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM meme_dynamic_history WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM meme_dynamic_counter WHERE user_id=?", (uid,))
         v2_data.erase_user(c, uid)
     await q.answer("Удалено")
     await display(q.message, "История удалена из активной базы. Резервные копии на сервере удаляются отдельно.", kb([[("🏠 Меню", "home")]]))
@@ -651,45 +653,10 @@ async def reminder_loop(bot):
                                                             titles, risk_tag)
                 keyboard = v2_experience.reminder_keyboard(kb)
                 try:
-                    path = context_memes.choose_photo(
-                        session["substance"], risk, connect, uid, meme_key)
-                    if path is None:
-                        try:
-                            await asyncio.to_thread(ensure_pack)
-                        except Exception as exc:
-                            print(f"Reminder disk meme generation failed: "
-                                  f"{type(exc).__name__}: {exc}", flush=True)
-                        path = context_memes.choose_photo(
-                            session["substance"], risk, connect, uid, meme_key)
-                    if path is None:
-                        from aiogram.types import BufferedInputFile
-                        from photo_memes import inline_picture
-                        # The process may be unable to write pictures to disk.
-                        # An in-memory JPEG still guarantees photo reminders.
-                        data = await asyncio.to_thread(inline_picture,
-                                                       session["substance"], risk)
-                        await bot.send_photo(uid,
-                            BufferedInputFile(data, filename="reminder-meme.jpg"),
-                            caption=caption[:1024], reply_markup=keyboard)
-                    else:
-                        try:
-                            await bot.send_photo(uid, FSInputFile(path),
-                                                 caption=caption[:1024],
-                                                 reply_markup=keyboard)
-                            record_meme(uid, path)
-                        except (OSError, ValueError) as stored_exc:
-                            # Only local file/encoding issues justify rebuilding the JPEG.
-                            # Telegram/network errors must reach the one-minute retry
-                            # handler, not trigger an immediate duplicate API request.
-                            print(f"Stored reminder picture unreadable; trying fresh JPG: "
-                                  f"{type(stored_exc).__name__}: {stored_exc}", flush=True)
-                            from aiogram.types import BufferedInputFile
-                            from photo_memes import inline_picture
-                            data = await asyncio.to_thread(inline_picture,
-                                                           session["substance"], risk)
-                            await bot.send_photo(uid,
-                                BufferedInputFile(data, filename="reminder-meme.jpg"),
-                                caption=caption[:1024], reply_markup=keyboard)
+                    # Every due reminder gets a fresh generated character, pose,
+                    # background, line and unique per-user serial number.
+                    await meme_engine.send_bot(bot, uid, session["substance"],
+                                               risk, connect, caption, keyboard)
                 except Exception as exc:
                     # Leave an audit trail and try again in one minute, rather
                     # than advancing the timer without delivering anything.
@@ -792,61 +759,20 @@ v2_experience.install(
 )
 
 
-async def complete_picture_library():
-    """Do not block Telegram polling on external image downloads."""
-    from photo_memes import ensure_pack, upgrade_photos
-    try:
-        files = await asyncio.to_thread(ensure_pack)
-        print(f"Offline picture memes in library: {len(files)}", flush=True)
-        n = await asyncio.to_thread(upgrade_photos)
-        print(f"Licensed-photo picture memes available: {n}", flush=True)
-    except Exception as exc:
-        print(f"Picture library background build: {type(exc).__name__}: {exc}", flush=True)
-
-
 async def main():
     if not TOKEN or TOKEN == "put_your_token_here":
         raise RuntimeError("Set BOT_TOKEN in .env")
     init()
-    # Generate a usable offline picture-meme library before Telegram starts.
-    from photo_memes import ensure_pack, upgrade_photos
-    try:
-        ready = await asyncio.to_thread(ensure_pack, limit=21)
-        print(f"Picture memes ready at startup: {len(ready)}", flush=True)
-    except Exception as exc:
-        print(f"Picture meme bootstrap failed: {type(exc).__name__}: {exc}", flush=True)
-        # A disk write failure is no longer fatal: try in-memory JPEG.
-        try:
-            from photo_memes import inline_picture
-            data = await asyncio.to_thread(inline_picture, "Мефедрон", "more")
-            print(f"Memory-only picture fallback ready: {len(data)} bytes", flush=True)
-        except Exception as fallback_exc:
-            print(f"CRITICAL: Image rendering unavailable: "
-                  f"{type(fallback_exc).__name__}: {fallback_exc}", flush=True)
-    if os.getenv("MEME_LEGACY_CARDS", "0") == "1":
-        try:
-            await asyncio.to_thread(ensure_catalog, limit=16)
-        except Exception as exc:
-            print(f"Legacy meme rendering unavailable: {type(exc).__name__}: {exc}")
+    print("Dynamic picture-meme engine ready (no external image service)", flush=True)
     bot = Bot(TOKEN)
     task = asyncio.create_task(reminder_loop(bot))
-    discovery_task = asyncio.create_task(meme_update_loop())
-    originals_task = (asyncio.create_task(originals_loop())
-                      if os.getenv("MEME_LEGACY_CARDS", "0") == "1" else None)
     followups_task = asyncio.create_task(v2_experience.followup_loop(bot, connect, kb))
-    visual_task = asyncio.create_task(complete_picture_library())
     try:
         await dp.start_polling(bot)
     finally:
         task.cancel()
-        discovery_task.cancel()
-        if originals_task:
-            originals_task.cancel()
         followups_task.cancel()
-        visual_task.cancel()
-        await asyncio.gather(task, discovery_task, followups_task, visual_task,
-                             *([originals_task] if originals_task else []),
-                             return_exceptions=True)
+        await asyncio.gather(task, followups_task, return_exceptions=True)
 
 
 if __name__ == "__main__":
