@@ -137,7 +137,7 @@ class PhotoSendTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(image.size,(850,960))
             snapshots.append(data)
             self.assertEqual(call.kwargs["reply_markup"].inline_keyboard[1][1].callback_data,
-                             "v2:memethemes")
+                             "v2:home")
         self.assertNotEqual(snapshots[0],snapshots[1])
         with bot.connect() as c:
             rows=c.execute("SELECT template_id FROM real_meme_sent WHERE user_id=?",(1357,)).fetchall()
