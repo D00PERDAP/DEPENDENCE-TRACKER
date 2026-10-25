@@ -149,6 +149,15 @@ def main():
             if item["status"] == "pending":
                 print(f"{item['id']} [{item['category']}] {item['title']}\n    {item['page']}")
         print("Pending:", sum(x["status"] == "pending" for x in items))
+    elif args.action == "clean-old":
+        items = load()
+        count = 0
+        for item in items:
+            if item["status"] == "pending" and "commons.wikimedia.org" in item.get("page", ""):
+                item["status"] = "rejected"
+                count += 1
+        save(items)
+        print("Removed irrelevant old Commons candidates:", count)
     else:
         if args.id is None:
             parser.error("Specify ID")
