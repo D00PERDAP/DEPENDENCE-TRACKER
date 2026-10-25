@@ -701,25 +701,39 @@ async def originals_loop():
         await asyncio.sleep(6 * 3600)
 
 
+v2_experience.install(
+    dp, connect=connect, active=active, picked=picked, ensure_preset=ensure_preset,
+    kb=kb, display=display, now=utcnow, stamp=iso,
+    meme_key=meme_key, record_meme=record_meme, meme_buttons=meme_buttons,
+)
+
+
 async def main():
     if not TOKEN or TOKEN == "put_your_token_here":
         raise RuntimeError("Set BOT_TOKEN in .env")
     init()
-    try:
-        await asyncio.to_thread(ensure_catalog, limit=16)
-    except Exception as exc:
-        print(f"Original meme generation failed: {type(exc).__name__}: {exc}")
+    if os.getenv("MEME_LEGACY_CARDS", "0") == "1":
+        try:
+            await asyncio.to_thread(ensure_catalog, limit=16)
+        except Exception as exc:
+            print(f"Legacy meme rendering unavailable: {type(exc).__name__}: {exc}")
     bot = Bot(TOKEN)
     task = asyncio.create_task(reminder_loop(bot))
     discovery_task = asyncio.create_task(meme_update_loop())
-    originals_task = asyncio.create_task(originals_loop())
+    originals_task = (asyncio.create_task(originals_loop())
+                      if os.getenv("MEME_LEGACY_CARDS", "0") == "1" else None)
+    followups_task = asyncio.create_task(v2_experience.followup_loop(bot, connect, kb))
     try:
         await dp.start_polling(bot)
     finally:
         task.cancel()
         discovery_task.cancel()
-        originals_task.cancel()
-        await asyncio.gather(task, discovery_task, originals_task, return_exceptions=True)
+        if originals_task:
+            originals_task.cancel()
+        followups_task.cancel()
+        await asyncio.gather(task, discovery_task, followups_task,
+                             *([originals_task] if originals_task else []),
+                             return_exceptions=True)
 
 
 if __name__ == "__main__":
