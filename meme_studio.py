@@ -193,11 +193,11 @@ def wrap(draw, text, f, max_width):
         lines.append(current)
     return lines
 
-def fit(draw, text, width, max_lines, start=74, floor=35):
+def fit(draw, text, width, max_lines, start=74, floor=35, max_height=220):
     for size in range(start, floor - 1, -2):
         f = font(size)
         lines = wrap(draw, text, f, width)
-        if len(lines) <= max_lines and all(text_width(draw, line, f) <= width for line in lines):
+        if len(lines) <= max_lines and len(lines) * (size + 12) <= max_height and all(text_width(draw, line, f) <= width for line in lines):
             return f, lines
     raise ValueError("Caption cannot fit: " + text[:45])
 
@@ -216,18 +216,18 @@ def render(joke, output):
     badge = font(29)
     draw.text((101, 97), "НЕ НАТВОРИ ДЕЛОВ", font=badge, fill=bg)
     draw.text((SIZE - 155, 104), "18+", font=font(24), fill=bg)
-    label_font, label_lines = fit(draw, joke.label.upper(), SIZE - 185, 2, start=45, floor=28)
+    label_font, label_lines = fit(draw, joke.label.upper(), SIZE - 185, 2, start=45, floor=28, max_height=100)
     label_y = 199
     for line in label_lines:
         draw.text((SIZE // 2, label_y), line, fill=accent, font=label_font, anchor="ma", align="center")
         label_y += label_font.size + 9
-    top_font, top_lines = fit(draw, joke.setup, SIZE - 178, 3, start=67, floor=38)
+    top_font, top_lines = fit(draw, joke.setup, SIZE - 178, 3, start=67, floor=34, max_height=190)
     upper_y = 340
     for line in top_lines:
         draw.text((SIZE // 2, upper_y), line, fill=ink, font=top_font, anchor="ma")
         upper_y += top_font.size + 12
     draw.rounded_rectangle((170, 560, SIZE - 170, 569), radius=4, fill=accent)
-    punch_font, punch_lines = fit(draw, joke.punchline, SIZE - 178, 4, start=68, floor=34)
+    punch_font, punch_lines = fit(draw, joke.punchline, SIZE - 178, 4, start=68, floor=30, max_height=230)
     lower_y = 630
     for line in punch_lines:
         draw.text((SIZE // 2, lower_y), line, fill=ink, font=punch_font, anchor="ma")
