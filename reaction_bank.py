@@ -270,8 +270,8 @@ def import_media(input_path, *, person="", mood="auto",
         raise PermissionError("Explicit authorization / YES is required")
     if mood not in ("auto",)+MOODS:
         raise ValueError("Unknown mood")
-    if not 0<=min_distance<=20:
-        raise ValueError("min_distance must be 0..20")
+    if not 0<=min_distance<=7:
+        raise ValueError("min_distance must be 0..7 for exact indexed dedup")
     src=Path(input_path).expanduser().resolve()
     if src.is_file():
         sources=[src]
@@ -372,10 +372,12 @@ def status():
             "vision_enabled":os.getenv("REACTION_VISION_ENABLED","0")=="1"}
 
 
-def templates(risk, seen=None, limit=24, person=None):
+def templates(risk, seen=None, limit=24, person=None, desired_mood=None):
     """Return genuine local media: match scene's editorial reaction to joke tag."""
     seen=seen or set()
     wanted=RISK_MOODS.get(risk,RISK_MOODS["general"])
+    if desired_mood in MOODS and desired_mood != "neutral":
+        wanted=(desired_mood,)+tuple(m for m in wanted if m != desired_mood)
     with _db() as c:
         rows=[dict(r) for r in c.execute(
             "SELECT id,file,person,mood,scenes,credit FROM reactions"
@@ -439,7 +441,7 @@ def auto_retag(max_frames=None):
                           (mood,json.dumps(tags),confidence,row["id"]))
                 c.commit()
                 tagged+=1
-            except (OSError,ValueError,KeyError) as exc:
+            except Exception as exc:
                 print(f"Tag failed for frame {row['id']}: {type(exc).__name__}",flush=True)
     return {"tagged":tagged,"total":status()["count"]}
 
