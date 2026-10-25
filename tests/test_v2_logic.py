@@ -123,6 +123,27 @@ class V2SafetyTests(unittest.TestCase):
 
 
 class V2MemesTests(unittest.TestCase):
+    def test_owner_tagged_image_import_scrubs_metadata_and_preserves_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            temp = Path(tmp)
+            pic = Image.new("RGB", (640, 480), "navy")
+            buffer = io.BytesIO()
+            pic.save(buffer, format="JPEG")
+            with patch.object(context_memes, "ROOT", temp):
+                output = context_memes.import_admin_photo(
+                    buffer.getvalue(), "meph", "ex", 123456, assets=temp / "approved"
+                )
+                self.assertTrue(output.exists())
+                self.assertIn("meph/ex", output.as_posix())
+                self.assertIn(output, context_memes.candidates("Мефедрон", "ex", temp / "approved"))
+                with Image.open(output) as got:
+                    self.assertEqual(got.size, (640, 480))
+                    self.assertFalse(got.getexif())
+                log = temp / "data" / "meme_admin_imports.json"
+                self.assertIn('"rights_confirmed_by_admin": true', log.read_text())
+                with self.assertRaises(ValueError):
+                    context_memes.import_admin_photo(buffer.getvalue(), "../unsafe", "ex", 123, assets=temp)
+
     def test_only_contextual_approved_photos_and_no_old_quote_cards(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -135,8 +156,8 @@ class V2MemesTests(unittest.TestCase):
             (randoms / "other.jpg").write_bytes(b"generic")
             found = context_memes.candidates("Мефедрон", "ex", root)
             self.assertEqual([x.name for x in found], ["relevant.jpg"])
-            self.assertEqual([x.name for x in context_memes.candidates("Кетамин", "ex", root)],
-                             ["other.jpg"])
+            # A random generic image must NOT be misrepresented as a specific ex/drug meme.
+            self.assertEqual(context_memes.candidates("Кетамин", "ex", root), [])
             self.assertIn("Меф", context_memes.joke("Мефедрон", "general"))
 
 
