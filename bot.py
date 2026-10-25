@@ -188,15 +188,32 @@ async def deliver_meme(message, uid, category="general"):
 
 
 
+async def send_situation_meme(message, uid):
+    """Approved old-school photo if context matches, not the old quote-card generator."""
+    with connect() as c:
+        session = active(c, uid)
+        settings = v2_data.get_settings(c, uid)
+        substance = session["substance"] if session else settings["last_substance"]
+        titles = [x["title"] for x in picked(c, uid)]
+        risk_row = c.execute(
+            "SELECT tag FROM v2_events WHERE user_id=? AND event_type='risk' "
+            "AND created_at>=? ORDER BY id DESC LIMIT 1",
+            (uid, v2_data.stamp(utcnow() - timedelta(hours=3)))
+        ).fetchone()
+        risk = risk_row["tag"] if risk_row else v2_experience.risk_from_titles(titles)
+    return await context_memes.send(message, uid, substance, risk, connect,
+                                    meme_key, record_meme, meme_buttons)
+
+
 @dp.message(Command("meme"))
 async def send_test_meme(m: Message):
-    await deliver_meme(m, m.from_user.id)
+    await send_situation_meme(m, m.from_user.id)
 
 
 @dp.callback_query(F.data == "mnext")
 async def meme_next(q: CallbackQuery):
     await q.answer()
-    await deliver_meme(q.message, q.from_user.id)
+    await send_situation_meme(q.message, q.from_user.id)
 
 
 @dp.callback_query(F.data.startswith("mv:"))
