@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import re
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -21,6 +22,9 @@ INDEX = ROOT / "data" / "meme_candidates.json"
 FEEDS = ROOT / "data" / "meme_feeds.txt"
 MEDIA = ROOT / "assets" / "memes"
 CATEGORIES = {"ex", "calls", "money", "travel", "general"}
+DEFAULT_FEEDS = [("general", "https://pikabu.ru/xmlfeeds.php?cmd=popular")]
+KEYWORDS = re.compile(r"наркот|нарком|меф|солев|трезв|зависим|упорот|бывш|звон|сообщени|такси|трат|потрат|денег|деньги|алкогол|бух|запой|похмел", re.I)
+
 SEEDS = [
     ("general", "ооаоаа) ммм)) — постироничный наркоманский мем", "https://memepedia.ru/ooaoaa-mmm/"),
     ("general", "Ловите наркомана — крокодил Гена", "https://memepedia.ru/lovite-narkomana/"),
@@ -63,20 +67,23 @@ def scan():
     items = load()
     known = {x.get("page") for x in items}
     sources = list(SEEDS)
+    configured = [f"{cat} {url}" for cat, url in DEFAULT_FEEDS]
     if FEEDS.exists():
-        for line in FEEDS.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
+        configured += FEEDS.read_text(encoding="utf-8").splitlines()
+    for line in configured:
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            category, url = line.split(maxsplit=1)
+            if category not in CATEGORIES or not url.startswith("https://"):
+                print("Skipped invalid feed:", line)
                 continue
-            try:
-                category, url = line.split(maxsplit=1)
-                if category not in CATEGORIES or not url.startswith("https://"):
-                    print("Skipped invalid feed:", line)
-                    continue
-                for title, link in feed_links(url):
+            for title, link in feed_links(url):
+                if KEYWORDS.search(title):
                     sources.append((category, title, link))
-            except (OSError, ValueError, ET.ParseError) as exc:
-                print("Feed unavailable:", type(exc).__name__, line[:90])
+        except (OSError, ValueError, ET.ParseError) as exc:
+            print("Feed unavailable:", type(exc).__name__, line[:90])
     added = 0
     for category, title, link in sources:
         if link in known:
