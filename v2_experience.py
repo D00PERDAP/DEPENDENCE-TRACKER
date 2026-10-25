@@ -221,6 +221,10 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 return await panel(q, "Неверная частота.", [[("⬅️ Назад", "v2:settings")]])
             with connect() as c:
                 settings, session = setup_state(c, uid)
+                if action == "setfreq" and not session:
+                    return await panel(q, "Сначала включи сопровождение.", [
+                        [("▶️ Начать", "v2:start"), ("🏠 Меню", "v2:home"),
+                    ]])
                 created = session is None
                 if created:
                     cur = c.execute("INSERT INTO sessions(user_id,substance,started) VALUES(?,?,?)",
@@ -279,6 +283,16 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             return
 
         if action == "feel":
+            if param == "panic":
+                with connect() as c:
+                    settings, session = setup_state(c, uid)
+                    substance = session["substance"] if session else settings["last_substance"]
+                    db.record_event(c, uid, session["id"] if session else None, "state", "panic")
+                info = safety.get_card(substance, "panic")
+                return await panel(q, f"{info.title}\n\n{info.text}", [
+                    [("🕒 Проверить через 10 мин", "v2:wait:wellbeing")],
+                    [("🚨 Серьёзные симптомы", "v2:emergency"), ("🩺 Другой симптом", "v2:questions")],
+                ])
             if param == "ok":
                 with connect() as c:
                     settings, session = setup_state(c, uid)
@@ -328,7 +342,31 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     [("🏠 Меню", "v2:home")],
                 ])
 
-        if action in ("safety", "faq"):
+        if action == "checkin":
+            return await panel(q, "🫀 КАК ТЫ?\n\nВыбирай, что ближе прямо сейчас. "
+                               "Это не диагноз — ответы помогут подобрать действие.", [
+                [("👌 В порядке", "v2:feel:ok"), ("😰 Паника", "v2:feel:panic")],
+                [("🔥 Тянет творить трэш", "v2:impulses"), ("😵 Не сплю", "v2:hold:sleep")],
+                [("🤢 Физически плохо", "v2:safety"), ("🚨 Срочно", "v2:emergency")],
+                [("🏠 Меню", "v2:home")],
+            ])
+
+        if action == "safety":
+            with connect() as c:
+                settings, session = setup_state(c, uid)
+                current_sub = session["substance"] if session else settings["last_substance"]
+                if current_sub not in safety.SUBSTANCES:
+                    current_sub = settings["last_substance"]
+            return await panel(q, f"🆘 МНЕ ПЛОХО\n\nПоследнее вещество: {current_sub}\n"
+                               "При боли в груди, затруднении дыхания, судорогах, "
+                               "потере сознания, перегреве — сразу вызывай скорую.", [
+                [("🚨 Немедленная помощь", "v2:emergency")],
+                [("🫀 Выбрать симптом", "v2:questions")],
+                [("💊 Другое вещество", "v2:meds")],
+                [("🏠 Меню", "v2:home")],
+            ])
+
+        if action in ("faq", "meds"):
             return await choose_safety(q)
 
         if action == "med":
