@@ -1,279 +1,409 @@
 import asyncio
+import io
 import os
 import sqlite3
-import secrets
-from datetime import datetime, timezone
+from collections import Counter
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile, InputMediaPhoto
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile
 from dotenv import load_dotenv
-from meme_cards import card
-from memes import streak_caption, session_caption, completed_goal_caption, ended_session_caption
 
 load_dotenv()
-TOKEN = os.getenv('BOT_TOKEN')
-DB = Path(__file__).with_name('tracker.db')
-SUBSTANCES = ['Мефедрон', 'Альфа-ПВП', 'Амфетамин', 'Метамфетамин', 'Каннабис', 'MDMA', 'Кокаин', 'Опиоиды', 'Бензодиазепины', 'ЛСД', 'Псилоцибин', 'Другое']
-GOALS = ['Не смешивать вещества', 'Не садиться за руль', 'Быть с человеком, которому доверяю', 'Проверять самочувствие', 'Не оставаться одному при ухудшении состояния']
+TOKEN = os.getenv("BOT_TOKEN")
+DB = Path(__file__).with_name("tracker.db")
+PRESETS = [
+    "Не звонить бывшей", "Не названивать друзьям",
+    "Не ехать за приключениями", "Не тратить лишние деньги",
+    "Не садиться за руль", "Не писать лишнего",
+    "Не смешивать вещества", "Не оставаться одному, если плохо",
+]
+SUBSTANCES = ["Мефедрон", "Альфа-ПВП", "Амфетамин", "Метамфетамин",
+              "Каннабис", "MDMA", "Кокаин", "Опиоиды",
+              "Бензодиазепины", "ЛСД", "Псилоцибин", "Другое", "Не указывать"]
+INTERVALS = (15, 30, 60)
+dp = Dispatcher()
+
 
 class Form(StatesGroup):
-    note = State()
-    goal = State()
+    custom = State()
 
-def conn():
-    c = sqlite3.connect(DB)
+
+def connect():
+    c = sqlite3.connect(DB, timeout=20)
     c.row_factory = sqlite3.Row
+    c.execute("PRAGMA busy_timeout=20000")
     return c
 
+
+def utcnow():
+    return datetime.now(timezone.utc)
+
+
+def iso():
+    return utcnow().isoformat(timespec="seconds")
+
+
 def init():
-    with conn() as c:
-        c.executescript('''
+    with connect() as c:
+        c.executescript("""
         CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, substance TEXT);
         CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, substance TEXT NOT NULL, started TEXT NOT NULL, ended TEXT);
         CREATE TABLE IF NOT EXISTS entries (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, at TEXT NOT NULL, note TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, title TEXT NOT NULL, completed INTEGER NOT NULL DEFAULT 0);
-        ''')
+        CREATE TABLE IF NOT EXISTS checklist (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, title TEXT NOT NULL, selected INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE IF NOT EXISTS alerts (user_id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, interval_min INTEGER NOT NULL DEFAULT 30, next_at TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id,started);
+        """)
 
-def now():
-    return datetime.now(timezone.utc).isoformat(timespec='seconds')
 
-def keyboard(rows):
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t, callback_data=v) for t,v in row] for row in rows])
+def kb(rows):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=label, callback_data=data) for label, data in row]
+        for row in rows
+    ])
 
-def main_kb():
-    return keyboard([[('🎲 Мем','meme'),('📝 Записать','session')], [('📊 Мой прогресс','stats'), ('⚙️ Ещё','more')]])
 
 def active(c, uid):
-    return c.execute('SELECT * FROM sessions WHERE user_id=? AND ended IS NULL ORDER BY id DESC LIMIT 1', (uid,)).fetchone()
+    return c.execute("SELECT * FROM sessions WHERE user_id=? AND ended IS NULL ORDER BY id DESC LIMIT 1", (uid,)).fetchone()
 
-def selected(c, uid):
-    row = c.execute('SELECT substance FROM users WHERE user_id=?', (uid,)).fetchone()
-    return row['substance'] if row else None
 
-async def show(message, text, kb=None):
+def ensure_preset(c, uid):
+    n = c.execute("SELECT COUNT(*) FROM checklist WHERE user_id=?", (uid,)).fetchone()[0]
+    if n == 0:
+        c.executemany("INSERT INTO checklist(user_id,title,selected) VALUES(?,?,0)",
+                      [(uid, text) for text in PRESETS])
+
+
+def picked(c, uid):
+    return c.execute("SELECT * FROM checklist WHERE user_id=? AND selected=1 ORDER BY id", (uid,)).fetchall()
+
+
+async def display(message, text, markup):
     try:
-        if message.photo:
-            await message.delete()
-            await message.answer(text, reply_markup=kb)
-        else:
-            await message.edit_text(text, reply_markup=kb)
+        if message.text is not None:
+            await message.edit_text(text, reply_markup=markup)
+            return
+        await message.delete()
     except Exception:
-        await message.answer(text, reply_markup=kb)
+        pass
+    await message.answer(text, reply_markup=markup)
 
-async def send_card(message, uid, menu=False):
-    with conn() as c:
-        last = c.execute('SELECT substance, started FROM sessions WHERE user_id=? ORDER BY started DESC LIMIT 1', (uid,)).fetchone()
-        sub = selected(c, uid)
-        current = active(c, uid)
-    days = max(0, (datetime.now(timezone.utc) - datetime.fromisoformat(last['started'])).days) if last else -1
-    variant = secrets.randbelow(10000)
-    subtitle = ('🔴 Идёт запись сессии.' if current else
-                f'🗿 {days} дн. с последней записи в журнале.' if last else
-                '🗿 Начни с записи или просто лови мем.')
-    subtitle += '\\nСчётчик основан только на твоих записях.'
-    kb = main_kb() if menu else keyboard([[('🎲 Другой мем','meme')], [('🏠 Меню','home')]])
-    try:
-        picture = await asyncio.to_thread(card, days, last['substance'] if last else (sub or 'вещества'), variant)
-        if getattr(message, 'photo', None):
-            try:
-                await message.edit_media(InputMediaPhoto(media=BufferedInputFile(picture, filename='meme.png'), caption=subtitle), reply_markup=kb)
-                return
-            except Exception:
-                pass
-        await message.answer_photo(BufferedInputFile(picture, filename='meme.png'), caption=subtitle, reply_markup=kb)
-    except Exception:
-        await message.answer('🗿 НЕ СЕГОДНЯ\\n' + subtitle, reply_markup=kb)
+
+def home_buttons(running=False):
+    if running:
+        return kb([[("☑️ Мои запреты", "check")],
+                   [("🫀 Как я?", "health"), ("⏹ Закончить", "finish")],
+                   [("📊 Статистика", "stats"), ("⚙️ Ещё", "more")]])
+    return kb([[("☑️ Я НЕ ХОЧУ", "check")],
+               [("📊 Статистика", "stats"), ("⚙️ Ещё", "more")]])
+
 
 async def home(message, uid):
-    await send_card(message, uid, menu=True)
+    with connect() as c:
+        session = active(c, uid)
+        ensure_preset(c, uid)
+        count = len(picked(c, uid))
+    if session:
+        text = f"💀 НЕ НАТВОРИ ДЕЛОВ\n\n🔴 Сопровождение включено.\nТвои запреты: {count}\n\nЕсли тебе плохо — нажми «Как я?»."
+    else:
+        text = "💀 НЕ НАТВОРИ ДЕЛОВ\n\nВыбери, чего НЕ хочешь натворить.\nПотом включи напоминания. Всё."
+    await display(message, text, home_buttons(bool(session)))
 
-bot_dp = Dispatcher()
 
-@bot_dp.message(CommandStart())
-async def start(m:Message):
-    await home(m,m.from_user.id)
+@dp.message(CommandStart())
+async def start(m: Message, state: FSMContext):
+    await state.clear()
+    await home(m, m.from_user.id)
 
-@bot_dp.callback_query(F.data == 'home')
-async def back(q:CallbackQuery):
+
+@dp.callback_query(F.data == "home")
+async def to_home(q: CallbackQuery):
     await q.answer()
-    await home(q.message,q.from_user.id)
+    await home(q.message, q.from_user.id)
 
-@bot_dp.callback_query(F.data == 'meme')
-async def meme(q:CallbackQuery):
-    await q.answer()
-    await send_card(q.message, q.from_user.id)
 
-@bot_dp.callback_query(F.data == 'more')
-async def more(q:CallbackQuery):
+async def checklist(message, uid):
+    with connect() as c:
+        ensure_preset(c, uid)
+        rows = c.execute("SELECT * FROM checklist WHERE user_id=? ORDER BY id", (uid,)).fetchall()
+        session = active(c, uid)
+    markup = [[(("✅ " if r["selected"] else "▫️ ") + r["title"][:55], f"toggle:{r['id']}")] for r in rows]
+    markup += [[("✍️ Свой пункт", "custom")]]
+    markup += [[("▶️ Начать" if not session else "🔴 В процессе", "substance" if not session else "home")]]
+    markup += [[("🏠 Назад", "home")]]
+    await display(message, "☑️ Я НЕ ХОЧУ\n\nНажми на то, чего сегодня НЕ хочешь делать. Повторное нажатие убирает галочку.", kb(markup))
+
+
+@dp.callback_query(F.data == "check")
+async def check(q: CallbackQuery):
     await q.answer()
-    await show(q.message, '⚙️ ЕЩЁ\\nВсё полезное без десятка кнопок на главной.', keyboard([
-        [('💊 Вещество','substances'), ('🎯 Цели','goals')],
-        [('🛟 Безопасность','safety'), ('⚙️ Настройки','settings')],
-        [('🏠 Меню','home')]
+    await checklist(q.message, q.from_user.id)
+
+
+@dp.callback_query(F.data.startswith("toggle:"))
+async def toggle(q: CallbackQuery):
+    with connect() as c:
+        item = c.execute("SELECT id FROM checklist WHERE id=? AND user_id=?", (q.data.split(":")[1], q.from_user.id)).fetchone()
+        if item:
+            c.execute("UPDATE checklist SET selected=1-selected WHERE id=?", (item["id"],))
+    await q.answer()
+    await checklist(q.message, q.from_user.id)
+
+
+@dp.callback_query(F.data == "custom")
+async def custom(q: CallbackQuery, state: FSMContext):
+    await q.answer()
+    await state.set_state(Form.custom)
+    await display(q.message, "✍️ Напиши одним сообщением, чего не хочешь делать.\n\nНапример: «Не брать кредиты».\n/start — отмена.", None)
+
+
+@dp.message(Form.custom)
+async def save_custom(m: Message, state: FSMContext):
+    if not m.text or not m.text.strip() or len(m.text.strip()) > 100:
+        return await m.answer("Отправь текст до 100 символов.")
+    with connect() as c:
+        c.execute("INSERT INTO checklist(user_id,title,selected) VALUES(?,?,1)", (m.from_user.id, m.text.strip()))
+    await state.clear()
+    await m.answer("✅ Добавлено.", reply_markup=kb([[("☑️ К чек-листу", "check")]]))
+
+
+@dp.callback_query(F.data == "substance")
+async def substance(q: CallbackQuery):
+    with connect() as c:
+        session = active(c, q.from_user.id)
+        selected = picked(c, q.from_user.id)
+    await q.answer()
+    if session:
+        return await home(q.message, q.from_user.id)
+    if not selected:
+        return await display(q.message, "Отметь хотя бы один пункт.", kb([[("☑️ К списку", "check")]]))
+    rows = [[(name, f"sub:{i}")] for i, name in enumerate(SUBSTANCES)]
+    rows.append([("⬅️ Назад", "check")])
+    await display(q.message, "Что употребляешь или планируешь?\nМожно не указывать. Здесь нет дозировок и рекомендаций по употреблению.", kb(rows))
+
+
+@dp.callback_query(F.data.startswith("sub:"))
+async def choose_sub(q: CallbackQuery):
+    try:
+        idx = int(q.data.partition(":")[2])
+        name = SUBSTANCES[idx]
+        if idx < 0:
+            raise IndexError()
+    except (ValueError, IndexError):
+        return await q.answer("Неизвестный пункт", show_alert=True)
+    with connect() as c:
+        session = active(c, q.from_user.id)
+        if not session:
+            cur = c.execute("INSERT INTO sessions(user_id,substance,started) VALUES(?,?,?)",
+                            (q.from_user.id, name, iso()))
+            c.execute("INSERT INTO users(user_id,substance) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET substance=excluded.substance",
+                      (q.from_user.id, name))
+            sid = cur.lastrowid
+        else:
+            sid = session["id"]
+    await q.answer()
+    await display(q.message, "🔔 Как часто напоминать о твоих решениях?", kb([
+        [("15 минут", f"interval:{sid}:15"), ("30 минут", f"interval:{sid}:30")],
+        [("60 минут", f"interval:{sid}:60")],
+        [("⏹ Без напоминаний", "finish")]
     ]))
 
-@bot_dp.callback_query(F.data == 'substances')
-async def substances(q:CallbackQuery):
-    await q.answer()
-    rows = [[(s, f'sub:{i}')] for i,s in enumerate(SUBSTANCES)] + [[('⬅️ Назад','home')]]
-    await show(q.message,'💊 ВЫБЕРИ ВЕЩЕСТВО\nМожно сменить позже. У каждой записи сохраняется исходное вещество.',keyboard(rows))
 
-@bot_dp.callback_query(F.data.startswith('sub:'))
-async def set_sub(q:CallbackQuery):
-    i = int(q.data.split(':')[1])
-    if i not in range(len(SUBSTANCES)):
-        return await q.answer('Неизвестный выбор',show_alert=True)
-    with conn() as c:
-        c.execute('INSERT INTO users(user_id,substance) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET substance=excluded.substance',(q.from_user.id,SUBSTANCES[i]))
-    await q.answer('Выбрано')
-    await home(q.message,q.from_user.id)
+@dp.callback_query(F.data.startswith("interval:"))
+async def interval(q: CallbackQuery):
+    try:
+        _, sid_str, minutes_str = q.data.split(":")
+        sid, minutes = int(sid_str), int(minutes_str)
+    except (ValueError, TypeError):
+        return await q.answer("Неверная настройка", show_alert=True)
+    if minutes not in INTERVALS:
+        return await q.answer("Неверная частота", show_alert=True)
+    with connect() as c:
+        ses = active(c, q.from_user.id)
+        if not ses or ses["id"] != sid:
+            return await q.answer("Сессия уже завершена", show_alert=True)
+        next_at = (utcnow() + timedelta(minutes=minutes)).isoformat(timespec="seconds")
+        c.execute("""INSERT INTO alerts(user_id,session_id,interval_min,next_at) VALUES(?,?,?,?)
+                    ON CONFLICT(user_id) DO UPDATE SET session_id=excluded.session_id,
+                    interval_min=excluded.interval_min,next_at=excluded.next_at""",
+                  (q.from_user.id, sid, minutes, next_at))
+    await q.answer("Включено")
+    await home(q.message, q.from_user.id)
 
-@bot_dp.callback_query(F.data == 'session')
-async def session(q:CallbackQuery):
-    await q.answer()
-    with conn() as c:
-        sub = selected(c,q.from_user.id)
-        ses = active(c,q.from_user.id)
-    if not sub:
-        return await show(q.message,'Для записи выбери вещество.',keyboard([[('💊 Выбрать','substances')],[('🏠 Меню','home')]]))
-    if ses:
-        return await show(q.message,f'🔴 СЕССИЯ ОТКРЫТА\n{sub}\nНачало (UTC): {ses["started"]}\n\nЗаписывай самочувствие, не ориентируйся на таймер как на признак безопасности.',keyboard([[('📝 Добавить заметку','note')],[('🎯 Цели','goals')],[('⏹ Завершить сессию','end')],[('⬅️ Назад','home')]]))
-    await show(q.message,f'📝 НОВАЯ СЕССИЯ: {sub}\n\nБот фиксирует время и заметки. Он не рассчитывает безопасные дозы.',keyboard([[('▶️ Начать запись','begin')],[('⬅️ Назад','home')]]))
 
-@bot_dp.callback_query(F.data == 'begin')
-async def begin(q:CallbackQuery):
-    with conn() as c:
-        sub=selected(c,q.from_user.id)
-        if not sub:
-            return await q.answer('Сначала выбери вещество',show_alert=True)
-        if not active(c,q.from_user.id):
-            c.execute('INSERT INTO sessions(user_id,substance,started) VALUES(?,?,?)',(q.from_user.id,sub,now()))
-    await q.answer(session_caption())
-    await session(q)
-
-@bot_dp.callback_query(F.data == 'end')
-async def end(q:CallbackQuery):
-    with conn() as c:
-        ses=active(c,q.from_user.id)
+@dp.callback_query(F.data == "finish")
+async def finish(q: CallbackQuery):
+    with connect() as c:
+        ses = active(c, q.from_user.id)
         if ses:
-            c.execute('UPDATE sessions SET ended=? WHERE id=?',(now(),ses['id']))
-    await q.answer(ended_session_caption())
-    await home(q.message,q.from_user.id)
+            c.execute("UPDATE sessions SET ended=? WHERE id=?", (iso(), ses["id"]))
+        c.execute("DELETE FROM alerts WHERE user_id=?", (q.from_user.id,))
+    await q.answer("Завершено")
+    await home(q.message, q.from_user.id)
 
-@bot_dp.callback_query(F.data == 'note')
-async def note(q:CallbackQuery,state:FSMContext):
-    with conn() as c:
-        ses=active(c,q.from_user.id)
-    if not ses:
-        return await q.answer('Сначала начни сессию',show_alert=True)
-    await state.set_state(Form.note)
+
+@dp.callback_query(F.data == "health")
+async def health(q: CallbackQuery):
     await q.answer()
-    await show(q.message,'📝 Напиши одним сообщением, что произошло или как себя чувствуешь. /start — отмена.')
+    await display(q.message, "🫀 КАК ТЫ?\n\nЕсли сильная боль в груди, судороги, потеря сознания, проблемы с дыханием, перегрев или сильная спутанность — вызывай экстренную помощь (112 в России).\n\nНе садись за руль. При ухудшении попроси трезвого человека быть рядом. Бот не заменяет врачей.", kb([
+        [("👌 Нормально", "home"), ("🆘 Мне плохо", "safety")],
+        [("🏠 Назад", "home")]
+    ]))
 
-@bot_dp.message(Form.note)
-async def save_note(m:Message,state:FSMContext):
-    if not m.text or len(m.text)>1000:
-        return await m.answer('Нужен текст до 1000 символов.')
-    with conn() as c:
-        ses=active(c,m.from_user.id)
-        if ses:
-            c.execute('INSERT INTO entries(session_id,at,note) VALUES(?,?,?)',(ses['id'],now(),m.text))
-    await state.clear()
-    await m.answer('🗿 ЗАПИСАНО. ПАМЯТЬ НЕ РЕЗИНОВАЯ, А SQLITE — ДА.',reply_markup=main_kb())
 
-@bot_dp.callback_query(F.data == 'goals')
-async def goals(q:CallbackQuery):
-    with conn() as c:
-        ses=active(c,q.from_user.id)
-        saved=c.execute('SELECT * FROM goals WHERE session_id=?',(ses['id'],)).fetchall() if ses else []
-    if not ses:
-        return await q.answer('Для целей сначала начни сессию',show_alert=True)
-    txt='🎯 ЦЕЛИ СЕССИИ\n\n'+'\n'.join(f'{"✅" if x["completed"] else "⬜"} {x["title"]}' for x in saved)
-    if not saved: txt+='Пока нет целей.'
-    rows=[[(f'{"☑️" if x["completed"] else "⬜"} {x["title"][:30]}',f'goal_toggle:{x["id"]}')] for x in saved]
-    rows += [[('➕ Добавить цель','goal_add')],[('⬅️ Назад','session')]]
+@dp.callback_query(F.data == "safety")
+async def safety(q: CallbackQuery):
     await q.answer()
-    await show(q.message,txt,keyboard(rows))
+    await display(q.message, "🆘 ЕСЛИ ПЛОХО\n\nПри боли в груди, судорогах, потере сознания, проблемах с дыханием, перегреве или выраженной спутанности — сразу звони 112 (Россия) или в местную экстренную службу.\n\nНе оставайся один. Если человек без сознания, но дышит, поверни его на бок. Если не дышит нормально — следуй указаниям диспетчера.", kb([[("🏠 Меню", "home")]]))
 
-@bot_dp.callback_query(F.data == 'goal_add')
-async def goal_add(q:CallbackQuery):
+
+def month_data(c, uid):
+    start = utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    rows = c.execute("SELECT substance,started,ended FROM sessions WHERE user_id=? AND started>=? ORDER BY started",
+                     (uid, start.isoformat())).fetchall()
+    weeks = [0] * 5
+    substances = Counter()
+    durations = []
+    for row in rows:
+        when = datetime.fromisoformat(row["started"])
+        weeks[min(4, (when.day - 1)//7)] += 1
+        substances[row["substance"]] += 1
+        if row["ended"]:
+            try:
+                hours = (datetime.fromisoformat(row["ended"]) - when).total_seconds()/3600
+                if hours >= 0:
+                    durations.append(hours)
+            except (ValueError, TypeError):
+                pass
+    return rows, weeks, substances, durations
+
+
+@dp.callback_query(F.data == "stats")
+async def stats(q: CallbackQuery):
+    with connect() as c:
+        rows, weeks, substances, durations = month_data(c, q.from_user.id)
+    month = utcnow().strftime("%m.%Y")
+    bars = "\n".join(f"{i+1} нед.  {'█'*n or '·'}  {n}" for i, n in enumerate(weeks))
+    names = "\n".join(f"• {name}: {num}" for name, num in substances.most_common())
+    duration = f"Средняя длительность записи: {sum(durations)/len(durations):.1f} ч\n" if durations else ""
+    txt = (f"📊 СТАТИСТИКА · {month} (UTC)\n\n"
+           f"Записей о сессиях: {len(rows)}\n"
+           f"{duration}\n"
+           f"{bars}\n\n"
+           f"Что указано:\n{names or 'Пока пусто.'}\n\n"
+           "Статистика основана только на собственных отметках, а не на реальном измерении употребления.")
     await q.answer()
-    await show(q.message,'🎯 ЦЕЛЬ — ЭТО ГРАНИЦА, А НЕ ЧЕЛЛЕНДЖ НА УПОТРЕБЛЕНИЕ.',keyboard([[(x,f'goal_preset:{i}')] for i,x in enumerate(GOALS)]+[[('✍️ Своя цель','goal_custom')],[('⬅️ Назад','goals')]]))
+    await display(q.message, txt, kb([[("🏠 Меню", "home")], [("🗑 Мои данные", "delete_ask")]]))
 
-@bot_dp.callback_query(F.data.startswith('goal_preset:'))
-async def goal_preset(q:CallbackQuery):
-    i=int(q.data.split(':')[1]);
-    if i not in range(len(GOALS)): return await q.answer('Неизвестная цель',show_alert=True)
-    await insert_goal(q.from_user.id,GOALS[i]); await goals(q)
 
-async def insert_goal(uid,title):
-    with conn() as c:
-        ses=active(c,uid)
-        if ses: c.execute('INSERT INTO goals(session_id,title) VALUES(?,?)',(ses['id'],title))
-
-@bot_dp.callback_query(F.data == 'goal_custom')
-async def goal_custom(q:CallbackQuery,state:FSMContext):
-    await state.set_state(Form.goal);await q.answer()
-    await show(q.message,'✍️ Напиши свою цель одним сообщением. /start — отмена.')
-
-@bot_dp.message(Form.goal)
-async def save_goal(m:Message,state:FSMContext):
-    if not m.text or len(m.text)>140: return await m.answer('Нужен текст до 140 символов.')
-    await insert_goal(m.from_user.id,m.text)
-    await state.clear();await m.answer('🎯 МИССИЯ ПРИНЯТА, КОМАНДИР.',reply_markup=main_kb())
-
-@bot_dp.callback_query(F.data.startswith('goal_toggle:'))
-async def goal_toggle(q:CallbackQuery):
-    gid=int(q.data.split(':')[1])
-    with conn() as c:
-        ses=active(c,q.from_user.id)
-        if ses:
-            c.execute('UPDATE goals SET completed=1-completed WHERE id=? AND session_id=?',(gid,ses['id']))
-    await q.answer(completed_goal_caption())
-    await goals(q)
-
-@bot_dp.callback_query(F.data == 'stats')
-async def stats(q:CallbackQuery):
-    with conn() as c:
-        rows=c.execute('SELECT substance,started FROM sessions WHERE user_id=? ORDER BY started DESC',(q.from_user.id,)).fetchall()
-    if not rows: txt='📊 СТАТИСТИКА\n\nПока нет записей. НИКТО НЕ РОЖДАЕТСЯ С EXCEL В ГОЛОВЕ.'
-    else:
-        last=datetime.fromisoformat(rows[0]['started']);days=(datetime.now(timezone.utc)-last).days
-        txt=f'📊 СТАТИСТИКА\n\nВсего сессий: {len(rows)}\nС последней записи: {days} дн.\nПоследнее вещество: {rows[0]["substance"]}\n\nЭто период с последней записи, не медицинская оценка.'
-    await q.answer();await show(q.message,txt,keyboard([[('⚙️ Ещё','more')], [('🏠 Меню','home')]]))
-
-@bot_dp.callback_query(F.data == 'safety')
-async def safety(q:CallbackQuery):
+@dp.callback_query(F.data == "more")
+async def more(q: CallbackQuery):
     await q.answer()
-    await show(q.message,'🛟 БЕЗОПАСНОСТЬ\n\n⚠️ Сильная боль в груди, судороги, потеря сознания, затруднённое дыхание, перегрев или выраженная спутанность — повод немедленно вызвать экстренную помощь (112 в России).\n\nНе оставляй человека одного; при отсутствии сознания, но нормальном дыхании — положи на бок. При отсутствии нормального дыхания следуй указаниям диспетчера по реанимации.\n\nНе смешивай вещества. Состав и сила уличных веществ непредсказуемы. Таймер не означает, что стало безопасно.',keyboard([[('⬅️ Назад','home')]]))
+    await display(q.message, "⚙️ ЕЩЁ\n\nТвои записи видны только в этом чате. Удаление из базы не удаляет резервные копии сервера.", kb([
+        [("🛟 Безопасность", "safety")],
+        [("🗑 Удалить мои данные", "delete_ask")],
+        [("🏠 Меню", "home")]
+    ]))
 
-@bot_dp.callback_query(F.data == 'settings')
-async def settings(q:CallbackQuery):
-    await q.answer();await show(q.message,'⚙️ НАСТРОЙКИ\n\nУдаление стирает записи из активной базы. Резервные копии сервера нужно удалять отдельно.',keyboard([[('🗑 Удалить все мои данные','delete_ask')],[('⬅️ Назад','home')]]))
 
-@bot_dp.callback_query(F.data == 'delete_ask')
-async def delete_ask(q:CallbackQuery):
-    await q.answer();await show(q.message,'⚠️ ТОЧНО УДАЛИТЬ ВСЮ ИСТОРИЮ, ЦЕЛИ И НАСТРОЙКИ?\n\nПУТИН СПРАШИВАЕТ ПОСЛЕДНИЙ РАЗ.',keyboard([[('🗑 Да, удалить всё','delete_yes')],[('Нет, отмена','settings')]]))
+@dp.callback_query(F.data == "delete_ask")
+async def delete_ask(q: CallbackQuery):
+    await q.answer()
+    await display(q.message, "🗑 Удалить всю историю, чек-лист и напоминания?\n\nЭто нельзя отменить.", kb([
+        [("Да, удалить", "delete_yes")], [("Нет", "home")]
+    ]))
 
-@bot_dp.callback_query(F.data == 'delete_yes')
-async def delete_yes(q:CallbackQuery):
-    with conn() as c:
-        c.execute('DELETE FROM entries WHERE session_id IN (SELECT id FROM sessions WHERE user_id=?)',(q.from_user.id,))
-        c.execute('DELETE FROM goals WHERE session_id IN (SELECT id FROM sessions WHERE user_id=?)',(q.from_user.id,))
-        c.execute('DELETE FROM sessions WHERE user_id=?',(q.from_user.id,))
-        c.execute('DELETE FROM users WHERE user_id=?',(q.from_user.id,))
-    await q.answer('Удалено');await show(q.message,'🗑 ВСЁ УДАЛЕНО ИЗ АКТИВНОЙ БАЗЫ.\n\nНачать заново: /start')
+
+@dp.callback_query(F.data == "delete_yes")
+async def delete_yes(q: CallbackQuery):
+    uid = q.from_user.id
+    with connect() as c:
+        c.execute("DELETE FROM alerts WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM checklist WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM entries WHERE session_id IN (SELECT id FROM sessions WHERE user_id=?)", (uid,))
+        c.execute("DELETE FROM goals WHERE session_id IN (SELECT id FROM sessions WHERE user_id=?)", (uid,))
+        c.execute("DELETE FROM sessions WHERE user_id=?", (uid,))
+        c.execute("DELETE FROM users WHERE user_id=?", (uid,))
+    await q.answer("Удалено")
+    await display(q.message, "История удалена из активной базы. Резервные копии на сервере удаляются отдельно.", kb([[("🏠 Меню", "home")]]))
+
+
+def choose_meme(category, previous=None):
+    import random
+    directory = Path(__file__).with_name("assets") / "memes" / category
+    if not directory.exists():
+        return None
+    items = [x for x in directory.iterdir() if x.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")]
+    if not items:
+        return None
+    filtered = [x for x in items if x.name != previous] or items
+    return random.choice(filtered)
+
+
+async def reminder_loop(bot):
+    while True:
+        try:
+            current = utcnow()
+            with connect() as c:
+                due = c.execute("SELECT * FROM alerts WHERE next_at<=? ORDER BY next_at LIMIT 50", (current.isoformat(),)).fetchall()
+            for alert in due:
+                uid, sid = alert["user_id"], alert["session_id"]
+                with connect() as c:
+                    ses = c.execute("SELECT * FROM sessions WHERE id=? AND user_id=? AND ended IS NULL", (sid, uid)).fetchone()
+                    if not ses:
+                        c.execute("DELETE FROM alerts WHERE user_id=? AND session_id=?", (uid,sid))
+                        continue
+                    began = datetime.fromisoformat(ses["started"])
+                    if current - began >= timedelta(hours=24):
+                        c.execute("DELETE FROM alerts WHERE user_id=? AND session_id=?", (uid,sid))
+                        c.execute("UPDATE sessions SET ended=? WHERE id=? AND ended IS NULL", (iso(),sid))
+                        continue
+                    selected = picked(c, uid)
+                    next_time = (current + timedelta(minutes=alert["interval_min"])).isoformat(timespec="seconds")
+                    c.execute("UPDATE alerts SET next_at=? WHERE user_id=? AND session_id=?",
+                              (next_time,uid,sid))
+                titles = [x["title"] for x in selected]
+                if not titles:
+                    continue
+                text = "🔔 ТЫ САМ РЕШИЛ:\n\n" + "\n".join("☑️ " + t for t in titles[:8]) + "\n\nНе принимай импульсивных решений. Если плохо — обращайся за помощью."
+                try:
+                    # Opt-in only. Curated, local memes; no external image lookups, no AI.
+                    category = "general"
+                    lower = " ".join(titles).lower()
+                    if "бывш" in lower: category = "ex"
+                    elif "друз" in lower or "звон" in lower: category = "calls"
+                    elif "деньг" in lower or "трат" in lower: category = "money"
+                    elif "ехат" in lower or "руль" in lower: category = "travel"
+                    path = choose_meme(category) or choose_meme("general")
+                    if path:
+                        from aiogram.types import FSInputFile
+                        await bot.send_photo(uid, FSInputFile(path), caption=text[:1024])
+                    else:
+                        await bot.send_message(uid, text)
+                except Exception as exc:
+                    print(f"Reminder delivery error for user {uid}: {type(exc).__name__}")
+        except Exception as exc:
+            print(f"Reminder loop error: {type(exc).__name__}: {exc}")
+        await asyncio.sleep(30)
+
 
 async def main():
-    if not TOKEN or TOKEN=='put_your_token_here':
-        raise RuntimeError('Укажи BOT_TOKEN в .env')
+    if not TOKEN or TOKEN == "put_your_token_here":
+        raise RuntimeError("Set BOT_TOKEN in .env")
     init()
-    bot=Bot(TOKEN)
-    await bot_dp.start_polling(bot)
+    bot = Bot(TOKEN)
+    task = asyncio.create_task(reminder_loop(bot))
+    try:
+        await dp.start_polling(bot)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
-if __name__=='__main__':
+
+if __name__ == "__main__":
     asyncio.run(main())
