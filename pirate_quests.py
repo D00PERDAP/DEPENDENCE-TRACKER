@@ -13,6 +13,8 @@ from aiogram.types import CallbackQuery, Message, InlineKeyboardButton, InlineKe
 
 ROOT = Path(__file__).resolve().parent
 DB = ROOT / "data" / "pirate_quests.sqlite3"
+# Temporary game messages are tracked per user for chat cleanup.
+GAME_MESSAGES = {}
 
 class QuestForm(StatesGroup):
     password = State()
@@ -45,12 +47,24 @@ def authorized(uid, word):
         p=c.execute("SELECT * FROM players WHERE user_id=?", (uid,)).fetchone()
     return bool(p and hmac.compare_digest(p["secret"], digest(word, p["salt"])))
 
+async def track(uid, message):
+    GAME_MESSAGES.setdefault(uid, []).append((message.chat.id, message.message_id))
+    return message
+
+async def clear_game(bot, uid):
+    messages = GAME_MESSAGES.pop(uid, [])
+    for chat_id, message_id in reversed(messages):
+        try:
+            await bot.delete_message(chat_id, message_id)
+        except Exception:
+            pass
+
 async def harbor(m, uid):
     with db() as c:
         rows=c.execute("SELECT id,title FROM treasures WHERE user_id=? ORDER BY id DESC LIMIT 30",(uid,)).fetchall()
     opts=[[(f"🗺️ {r['title'][:40]}",f"pq:view:{r['id']}")] for r in rows]
     opts += [[("➕ Создать сокровище","pq:new")],[("🚪 Закрыть гавань","pq:exit")]]
-    await m.answer("🏴‍☠️ ТАЙНАЯ ГАВАНЬ\\n\\nВыбери своё сокровище:",reply_markup=buttons(opts))
+    await track(uid, await m.answer("🏴‍☠️ ТАЙНАЯ ГАВАНЬ\n\nВыбери своё сокровище:",reply_markup=buttons(opts)))
 
 def install(dp):
     @dp.message(F.text.regexp(r"(?i)^клады$"))
@@ -58,7 +72,7 @@ def install(dp):
         if m.chat.type!="private": return
         await state.clear()
         await state.set_state(QuestForm.password)
-        await m.answer("🏴‍☠️ Тайная гавань\\n\\nВведи своё кодовое слово. При первом входе оно будет создано.")
+        await track(m.from_user.id, await m.answer("🏴‍☠️ Тайная гавань\\n\\nВведи своё кодовое слово. При первом входе оно будет создано."))
 
     @dp.message(QuestForm.password)
     async def password(m:Message,state:FSMContext):
@@ -89,7 +103,7 @@ def install(dp):
     async def exit_harbor(q:CallbackQuery,state:FSMContext):
         await state.clear()
         await q.answer("Гавань закрыта")
-        await q.message.edit_text("🏴‍☠️ Гавань закрыта.")
+        await clear_game(q.bot, q.from_user.id)
 
     @dp.callback_query(F.data=="pq:home")
     async def home(q:CallbackQuery,state:FSMContext):
@@ -102,7 +116,7 @@ def install(dp):
         if not await guard(q,state):return
         await q.answer()
         await state.set_state(QuestForm.title)
-        await q.message.answer("🏴‍☠️ Как назовём сокровище?")
+        await track(q.from_user.id, await q.message.answer("🏴‍☠️ Как назовём сокровище?"))
 
     @dp.message(QuestForm.title)
     async def title(m:Message,state:FSMContext):
@@ -110,23 +124,24 @@ def install(dp):
         if not 1<=len(title)<=60:return await m.answer("Название — от 1 до 60 символов.")
         await state.update_data(title=title)
         await state.set_state(QuestForm.photo)
-        await m.answer("📸 Отправь фотографию-подсказку.")
+        await track(m.from_user.id, await m.answer("📸 Отправь фотографию-подсказку."))
 
     @dp.message(QuestForm.photo)
     async def photo(m:Message,state:FSMContext):
         if not m.photo:return await m.answer("Нужна фотография.")
         await state.update_data(photo_id=m.photo[-1].file_id)
         await state.set_state(QuestForm.location)
-        await m.answer("📍 Отправь геолокацию Telegram или координаты в формате 55.75, 37.62.")
+        await track(m.from_user.id, await m.answer("📍 Отправь геолокацию Telegram или координаты в формате 55.75, 37.62."))
 
     @dp.message(QuestForm.location)
     async def location(m:Message,state:FSMContext):
         if m.location:
             lat,lon=m.location.latitude,m.location.longitude
         else:
-            match=re.fullmatch(r"\\s*(-?\\d+(?:\\.\\d+)?)\\s*[,; ]\\s*(-?\\d+(?:\\.\\d+)?)\\s*",m.text or "")
-            if not match:return await m.answer("Отправь геолокацию или координаты: 55.75, 37.62")
-            lat,lon=map(float,match.groups())
+            match=re.fullmatch(r"\\s*(-?\\d{1,2}(?:[.,]\\d+)?)\\s*[,;\\s]+\\s*(-?\\d{1,3}(?:[.,]\\d+)?)\\s*",m.text or "")
+            if not match:
+                return await m.answer("Отправь координаты, например: 55.751244123, 37.618423456")
+            lat,lon=(float(v.replace(",", ".")) for v in match.groups())
         if not -90<=lat<=90 or not -180<=lon<=180:
             return await m.answer("Некорректные координаты.")
         data=await state.get_data()
@@ -134,7 +149,7 @@ def install(dp):
             c.execute("INSERT INTO treasures(user_id,title,photo_id,latitude,longitude) VALUES(?,?,?,?,?)",
                       (m.from_user.id,data["title"],data["photo_id"],lat,lon))
         await state.set_state(None)
-        await m.answer("✅ Сокровище сохранено!")
+        await track(m.from_user.id, await m.answer("✅ Сокровище сохранено!"))
         await harbor(m,m.from_user.id)
 
     @dp.callback_query(F.data.startswith("pq:view:"))
@@ -146,9 +161,9 @@ def install(dp):
             row=c.execute("SELECT * FROM treasures WHERE id=? AND user_id=?",(tid,q.from_user.id)).fetchone()
         if not row:return await q.answer("Сокровище не найдено.",show_alert=True)
         await q.answer()
-        await q.message.answer_location(row["latitude"],row["longitude"])
-        await q.message.answer_photo(row["photo_id"],caption=f"🏴‍☠️ {row['title']}",
-            reply_markup=buttons([[("🏴‍☠️ Я пришёл на место",f"pq:arrive:{tid}")]]))
+        await track(q.from_user.id, await q.message.answer_location(row["latitude"],row["longitude"]))
+        await track(q.from_user.id, await q.message.answer_photo(row["photo_id"],caption=f"🏴‍☠️ {row['title']}",
+            reply_markup=buttons([[("🏴‍☠️ Я пришёл на место",f"pq:arrive:{tid}")]])))
 
     @dp.callback_query(F.data.startswith("pq:arrive:"))
     async def arrive(q:CallbackQuery,state:FSMContext):
@@ -157,9 +172,9 @@ def install(dp):
         try:
             await q.message.edit_caption(caption="🚨 Патруль приближается! Подсказка исчезнет через минуту.")
         except Exception:pass
+        uid=q.from_user.id
+        await state.clear()
         async def expire():
             await asyncio.sleep(60)
-            try:
-                await q.message.delete()
-            except Exception:pass
+            await clear_game(q.bot, uid)
         asyncio.create_task(expire())
