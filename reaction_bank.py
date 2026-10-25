@@ -161,6 +161,26 @@ def _metadata_tag(path, person, override="auto"):
     return "neutral", "undetermined", 0.0
 
 
+
+SCENE_HINTS = {
+    "phone": ("телефон","phone","смартфон","mobile","call","чат"),
+    "kitchen": ("кухня","kitchen","плита","холодильник"),
+    "car": ("car","taxi","машина","такси","автомобиль"),
+    "microphone": ("микрофон","microphone","studio","стрим","stream"),
+    "desk": ("office","desk","стол","деньги","банк"),
+    "bed": ("bed","bedroom","кровать","подушка"),
+    "group": ("group","компания","friends","друзья"),
+    "gaming": ("gaming","game","игра","компьютер"),
+    "portrait": ("portrait","портрет","лицо"),
+}
+
+
+def _filename_scenes(source):
+    description=" ".join(str(x) for x in source.parts[-3:]).casefold()
+    return [scene for scene,keywords in SCENE_HINTS.items()
+            if any(keyword in description for keyword in keywords)][:4]
+
+
 def _image_quality(img):
     if min(img.size)<275:
         return False
@@ -336,6 +356,8 @@ def import_media(input_path, *, person="", mood="auto",
                                     _auto_tags(c,img,detected,tag_method,conf)
                                     if auto_tag and mood=="auto" else
                                     (detected,[],tag_method,conf))
+                                if not scenes:
+                                    scenes=_filename_scenes(source)
                                 tmpfile=path.with_suffix(".jpg.tmp")
                                 try:
                                     tmpfile.write_bytes(raw)
@@ -384,7 +406,8 @@ def status():
             "vision_enabled":os.getenv("REACTION_VISION_ENABLED","0")=="1"}
 
 
-def templates(risk, seen=None, limit=24, person=None, desired_mood=None):
+def templates(risk, seen=None, limit=24, person=None, desired_mood=None,
+              desired_scenes=()):
     """Return genuine local media: match scene's editorial reaction to joke tag."""
     seen=seen or set()
     wanted=RISK_MOODS.get(risk,RISK_MOODS["general"])
@@ -402,8 +425,19 @@ def templates(risk, seen=None, limit=24, person=None, desired_mood=None):
     random.shuffle(rows)
     def rank(row):
         mood=row["mood"]
-        return (0 if mood in wanted else 1 if mood=="neutral" else 2,
-                wanted.index(mood) if mood in wanted else 99)
+        try:
+            scenes=set(json.loads(row["scenes"]))
+        except (ValueError,TypeError):
+            scenes=set()
+        scene_match=bool(set(desired_scenes or ()) & scenes)
+        if desired_scenes:
+            primary=(0 if scene_match and mood in wanted else
+                     1 if scene_match else
+                     2 if mood in wanted else
+                     3 if mood=="neutral" else 4)
+        else:
+            primary=(0 if mood in wanted else 1 if mood=="neutral" else 2)
+        return (primary,wanted.index(mood) if mood in wanted else 99)
     rows.sort(key=rank)
     return [{"id":"reaction-"+r["id"],
              "path":BANK/r["file"],
