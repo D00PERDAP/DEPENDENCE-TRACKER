@@ -149,6 +149,8 @@ def run():
     hashes = [item["phash"] for item in items if item.get("phash")]
     added = 0
     staged = []
+    from meme_vision import enabled as vision_enabled, analyze as vision_analyze
+    vision_budget = 6 if vision_enabled() else 0
     sources = list(SOURCES)
     try:
         from meme_collector import scan as scan_sources, load as load_sources
@@ -193,7 +195,20 @@ def run():
                         digest = hashlib.sha256(data).hexdigest()
                         path = REVIEW / (digest + ".jpg")
                         thumbnail.save(path, "JPEG", quality=85)
-                    staged.append({"status": "needs-rights-review", "source": source,
+                    vision = None
+                    if vision_budget:
+                        vision_budget -= 1
+                        try:
+                            vision = vision_analyze(path)
+                        except (OSError, ValueError, KeyError) as exc:
+                            print("  Vision review failed:", type(exc).__name__)
+                    accepted = vision is None or (
+                        vision["on_topic"] and vision["readable"] and vision["humor"] >= 2
+                    )
+                    staged.append({"status": "needs-rights-review" if accepted else "vision-rejected",
+                                   "vision_humor": vision["humor"] if vision else None,
+                                   "vision_reason": str(vision["reason"])[:200] if vision else "",
+                                   "source": source,
                                    "image_url": url, "preview": str(path.relative_to(ROOT)),
                                    "phash": phash, "relevance": score,
                                    "description": parser.context.get(url, "")[:280].strip(),
