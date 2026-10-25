@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class MagaStyleTests(unittest.TestCase):
     def test_settings_routes_and_voice(self):
         src = (ROOT / "bot.py").read_text(encoding="utf-8")
-        for label in ("🦅 МАГА | ТВОИ НАСТРОЙКИ", "🦅 МАГА | ЛИЧНОЕ ДЕЛО",
+        for label in ("🦅 МАГА | ТВОИ НАСТРОЙКИ", "🔐 МАГА | ЛИЧНОЕ ДЕЛО",
                       "🦅 МАГА | ШТАБ"):
             self.assertIn(label, src)
         for route in ("ui:mine", "ui:privacy", "v2:settings",
