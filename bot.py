@@ -245,12 +245,11 @@ async def admin_panel(q: CallbackQuery):
         users = c.execute("SELECT COUNT(*) FROM bot_user_profiles").fetchone()[0]
         admins = c.execute("SELECT COUNT(*) FROM bot_admins").fetchone()[0]
     await display(q.message, f"🛠 ШТАБ МАГИ\\n\\nПользователей: {users}\\nАдминов: {admins}", kb([
-        [("📁 Мемные сокровища", "admin:collections")],
-        [("📸 Закинуть мем", "admin:media")],
-        [("👥 Наши вацоки", "admin:users:0")],
-        [("📂 Дополнительные инструменты", "ac:menu")],
-        [("🔄 Освежить, жи есть", "admin:panel"), ("🚪 Уйти по-братски", "admin:logout")],
-        [("🏠 На базу", "v2:home")],
+        [("👥 Пользователи", "admin:users:0"), ("🏴‍☠️ Тайные точки", "ac:treasures:0")],
+        [("📁 Мемы и персонажи", "admin:collections"), ("📢 Рассылка", "ac:broadcast")],
+        [("📊 Аналитика", "ac:stats"), ("🛡 Журнал", "ac:audit")],
+        [("🎭 Модерация мемов", "ac:memes"), ("🎮 События", "ac:events")],
+        [("🚪 Выйти из админки", "admin:logout"), ("🏠 На базу", "v2:home")],
     ]))
 
 
@@ -1445,7 +1444,7 @@ v2_experience.install(
     dp, connect=connect, active=active, picked=picked, ensure_preset=ensure_preset,
     kb=kb, display=display, now=utcnow, stamp=iso,
     meme_key=meme_key, record_meme=record_meme, meme_buttons=meme_buttons,
-    is_admin=is_meme_admin_id,
+    is_admin=is_meme_admin_id, home_screen=home,
 )
 
 
