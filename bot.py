@@ -166,7 +166,7 @@ def home_buttons(running=False, admin=False):
     rows.insert(0, [("⏹ Завершить", "v2:finish")] if running
                 else [("▶️ Начать", "v2:start")])
     if admin:
-        rows.append([("🛠 Админка", "admin:panel")])
+        rows.append([("🛠 Штаб Маги", "admin:panel")])
     return kb(rows)
 
 
@@ -234,7 +234,7 @@ async def admin_verify(m, state, password):
                      ON CONFLICT(user_id) DO UPDATE SET last_login=excluded.last_login""",
                   (m.from_user.id, iso(), iso()))
     await state.clear()
-    await m.answer("✅ Вход выполнен", reply_markup=kb([[("🛠 Админка", "admin:panel")]]))
+    await m.answer("✅ Вход выполнен", reply_markup=kb([[("🛠 Штаб Маги", "admin:panel")]]))
 
 
 @dp.callback_query(F.data == "admin:panel")
@@ -246,12 +246,12 @@ async def admin_panel(q: CallbackQuery):
         users = c.execute("SELECT COUNT(*) FROM bot_user_profiles").fetchone()[0]
         admins = c.execute("SELECT COUNT(*) FROM bot_admins").fetchone()[0]
     await display(q.message, f"🛠 АДМИНКА\\n\\nПользователей: {users}\\nАдминов: {admins}", kb([
-        [("📁 Коллекции", "admin:collections")],
-        [("📸 Добавить фото/видео", "admin:media")],
-        [("👥 Пользователи", "admin:users:0")],
+        [("📁 Мемные сокровища", "admin:collections")],
+        [("📸 Закинуть мем", "admin:media")],
+        [("👥 Наши вацоки", "admin:users:0")],
         [("🛠 Центр управления", "ac:menu")],
-        [("🔄 Обновить", "admin:panel"), ("🚪 Выйти", "admin:logout")],
-        [("🏠 Меню", "v2:home")],
+        [("🔄 Освежить, жи есть", "admin:panel"), ("🚪 Уйти по-братски", "admin:logout")],
+        [("🏠 На базу", "v2:home")],
     ]))
 
 
@@ -269,7 +269,7 @@ async def admin_users(q: CallbackQuery):
     if page: nav.append(("⬅️", f"admin:users:{page-1}"))
     if (page+1)*10 < total: nav.append(("➡️", f"admin:users:{page+1}"))
     if nav: items.append(nav)
-    items.append([("🛠 Админка", "admin:panel")])
+    items.append([("🛠 Штаб Маги", "admin:panel")])
     await display(q.message, f"👥 ВАЦОКИ В БОТЕ · {total}\\nСтраница {page+1}", kb(items))
 
 
@@ -291,7 +291,7 @@ async def admin_user_detail(q: CallbackQuery):
     name = user["first_name"] or user["username"] or "Пользователь"
     await display(q.message, f"👤 {name}\\nID: {uid}\\nДоступ: {'🚫 заблокирован' if banned else '✅ открыт'}\\nСокровищ: {count}\\n\\n{titles}", kb([
         [(("✅ Разблокировать" if banned else "🚫 Заблокировать"), f"admin:ban_user:{uid}")],
-        [("🔑 Сбросить кодовое слово", f"admin:pirate_pick:{uid}")],
+        [("🔑 Сбросить пароль гавани", f"admin:pirate_pick:{uid}")],
         [("⬅️ Пользователи", "admin:users:0")],
     ]))
 
@@ -334,7 +334,7 @@ async def admin_reset_pirate_prompt(q: CallbackQuery, state: FSMContext):
     if page > 0: nav.append(("⬅️", f"admin:reset_pirate:{page-1}"))
     if (page + 1) * 10 < total: nav.append(("➡️", f"admin:reset_pirate:{page+1}"))
     if nav: items.append(nav)
-    items.append([("🛠 Админка", "admin:panel")])
+    items.append([("🛠 Штаб Маги", "admin:panel")])
     await display(q.message, "🔑 ВЫБЕРИ ПОЛЬЗОВАТЕЛЯ\\n\\nСбросим его кодовое слово, сохранив сокровища.", kb(items))
 
 
@@ -344,7 +344,7 @@ async def admin_pirate_pick(q: CallbackQuery):
         return await q.answer("Нет доступа", show_alert=True)
     uid = int(q.data.rsplit(":", 1)[-1])
     await q.answer()
-    await display(q.message, f"🔑 Сбросить кодовое слово пользователя {uid}?\\n\\nСокровища сохранятся.", kb([
+    await display(q.message, f"🔑 Сбросить пароль гавани пользователя {uid}?\\n\\nСокровища сохранятся.", kb([
         [("✅ Подтвердить", f"admin:pirate_confirm:{uid}")],
         [("⬅️ Пользователи", "admin:reset_pirate:0")],
     ]))
@@ -364,8 +364,8 @@ async def admin_pirate_confirm(q: CallbackQuery):
     await q.answer("Кодовое слово сброшено" if changed else "Кодового слова пока нет")
     await display(q.message, "✅ Кодовое слово сброшено. Сокровища сохранены." if changed
                   else "У пользователя пока нет кодового слова.",
-                  kb([[("👥 Пользователи", "admin:reset_pirate:0")],
-                      [("🛠 Админка", "admin:panel")]]))
+                  kb([[("👥 Наши вацоки", "admin:reset_pirate:0")],
+                      [("🛠 Штаб Маги", "admin:panel")]]))
 
 
 @dp.callback_query(F.data == "admin:logout")
@@ -373,7 +373,7 @@ async def admin_logout(q: CallbackQuery):
     await q.answer()
     with connect() as c:
         c.execute("DELETE FROM bot_admins WHERE user_id=?", (q.from_user.id,))
-    await display(q.message, "Выход из админки.", kb([[("🏠 Меню", "v2:home")]]))
+    await display(q.message, "Выход из админки.", kb([[("🏠 На базу", "v2:home")]]))
 
 
 def admin_people():
@@ -443,7 +443,7 @@ async def admin_save_person(m: Message, state: FSMContext):
     await state.update_data(person=name)
     await state.set_state(AdminAuth.media)
     await m.answer(f"✅ Персонаж «{name}» создан. Теперь отправь фото или видео.",
-                   reply_markup=kb([[("📁 Коллекции", "admin:collections")]]))
+                   reply_markup=kb([[("📁 Мемные сокровища", "admin:collections")]]))
 
 
 @dp.callback_query(F.data == "admin:media")
@@ -502,8 +502,8 @@ async def admin_media_upload(m: Message, state: FSMContext):
             f"Всего в медиатеке: {result['total']}\\nДубликатов: {result['duplicates']}",
             reply_markup=kb([
                 [("➕ Ещё фото", "admin:media")],
-                [("📁 Коллекции", "admin:collections")],
-                [("🛠 Админка", "admin:panel")],
+                [("📁 Мемные сокровища", "admin:collections")],
+                [("🛠 Штаб Маги", "admin:panel")],
             ]))
         try:
             await m.delete()
@@ -517,11 +517,11 @@ async def admin_media_upload(m: Message, state: FSMContext):
 @dp.callback_query(F.data == "ui:mine")
 async def mine_menu(q: CallbackQuery):
     await q.answer()
-    await display(q.message, "⚙️ МОЁ\\n\\nНастройки и личные данные.", kb([
-        [("🔔 Напоминания", "v2:settings"), ("☑️ Запреты", "check")],
-        [("📊 Статистика", "v2:stats"), ("🎯 Темы мемов", "v2:memethemes")],
-        [("🗑 Мои данные", "delete_ask")],
-        [("⬅️ Главное", "v2:home")],
+    await display(q.message, "⚙️ МОЁ, ВАЦОК\\n\\nТвои настройки и записи, брат. Всё по делу!", kb([
+        [("🔔 Напомни, брат", "v2:settings"), ("☑️ Моё слово", "check")],
+        [("📊 Мои расклады", "v2:stats"), ("🎯 Мемы по кайфу", "v2:memethemes")],
+        [("🗑 Удалить мои записи", "delete_ask")],
+        [("⬅️ На базу", "v2:home")],
     ]))
 
 
@@ -531,9 +531,9 @@ async def home(message, uid):
         ensure_preset(c, uid)
         count = len(picked(c, uid))
     if session:
-        text = f"💀 НЕ НАТВОРИ ДЕЛОВ\n\n🔴 Сопровождение активно.\nТвоих запретов: {count}\n\nЕсли тебя несёт или плохо — есть быстрые кнопки."
+        text = f"💀 НЕ НАТВОРИ ДЕЛОВ\n\n🔴 Сопровождение включено, вацок.\nТвоих запретов: {count}\n\nЕсли стало плохо — без шуток, жми помощь."
     else:
-        text = "💀 НЕ НАТВОРИ ДЕЛОВ\n\nНачни сопровождение, отметь свои запреты или просто проверь состояние.\nБез длинных анкет."
+        text = "💀 НЕ НАТВОРИ ДЕЛОВ\n\nСалам, бродяга! 🦅 Включай сопровождение, устанавливай правила или проверяй состояние.\nЖи есть, без лишнего базара!"
     await display(message, text, home_buttons(bool(session), is_meme_admin_id(uid)))
 
 
@@ -544,8 +544,8 @@ def meme_key(path):
 
 def meme_buttons(path):
     key = meme_key(path)
-    return kb([[("😂 Зашло", f"mv:1:{key}"), ("🥱 Не смешно", f"mv:-1:{key}")],
-               [("🎲 Ещё мем", "mnext")]])
+    return kb([[("😂 Вай, зашло", f"mv:1:{key}"), ("🥱 Не зашло", f"mv:-1:{key}")],
+               [("🎲 Ещё прикол, вацок", "mnext")]])
 
 
 def record_meme(uid, path):
@@ -1143,7 +1143,7 @@ async def health(q: CallbackQuery):
 @dp.callback_query(F.data == "safety")
 async def safety(q: CallbackQuery):
     await q.answer()
-    await display(q.message, "🆘 ЕСЛИ ПЛОХО\n\nПри боли в груди, судорогах, потере сознания, проблемах с дыханием, перегреве или выраженной спутанности — сразу звони 112 (Россия) или в местную экстренную службу.\n\nНе оставайся один. Если человек без сознания, но дышит, поверни его на бок. Если не дышит нормально — следуй указаниям диспетчера.", kb([[("🏠 Меню", "home")]]))
+    await display(q.message, "🆘 ЕСЛИ ПЛОХО\n\nПри боли в груди, судорогах, потере сознания, проблемах с дыханием, перегреве или выраженной спутанности — сразу звони 112 (Россия) или в местную экстренную службу.\n\nНе оставайся один. Если человек без сознания, но дышит, поверни его на бок. Если не дышит нормально — следуй указаниям диспетчера.", kb([[("🏠 На базу", "home")]]))
 
 
 def month_data(c, uid):
@@ -1180,7 +1180,7 @@ async def stats(q: CallbackQuery):
             BufferedInputFile(image, filename="private-stats.jpg"),
             caption=summary_caption(summary),
             reply_markup=kb([
-                [("📊 Обновить", "v2:stats"), ("🏠 Меню", "v2:home")],
+                [("📊 Обновить", "v2:stats"), ("🏠 На базу", "v2:home")],
                 [("🗑 Удалить мои данные", "delete_ask")],
             ]),
         )
@@ -1195,7 +1195,7 @@ async def more(q: CallbackQuery):
     await display(q.message, "⚙️ ЕЩЁ\n\nБот хранит твои отметки на сервере. Вход в бота — только через личный чат. Удаление из базы не удаляет резервные копии сервера.", kb([
         [("🛟 Безопасность", "safety")],
         [("🗑 Удалить мои данные", "delete_ask")],
-        [("🏠 Меню", "home")]
+        [("🏠 На базу", "home")]
     ]))
 
 
@@ -1226,7 +1226,7 @@ async def delete_yes(q: CallbackQuery):
         c.execute("DELETE FROM joke_delivery WHERE user_id=?", (uid,))
         v2_data.erase_user(c, uid)
     await q.answer("Удалено")
-    await display(q.message, "История удалена из активной базы. Резервные копии на сервере удаляются отдельно.", kb([[("🏠 Меню", "home")]]))
+    await display(q.message, "История удалена из активной базы. Резервные копии на сервере удаляются отдельно.", kb([[("🏠 На базу", "home")]]))
 
 
 def choose_meme(category, previous=None, user_id=None):
@@ -1358,7 +1358,7 @@ def reminder_status_text(c, uid):
         if next_time.tzinfo is None:
             next_time = next_time.replace(tzinfo=timezone.utc)
         mins = max(0, math.ceil((next_time - utcnow()).total_seconds() / 60))
-        return (f"🔔 Напоминания включены: каждые {alert['interval_min']} мин.\n"
+        return (f"🔔 Напомни, брат включены: каждые {alert['interval_min']} мин.\n"
                 f"Следующая отправка: примерно через {mins} мин.\n"
                 "Бот должен прислать фотографию с мемом и твоими запретами.")
     except (TypeError, ValueError):
@@ -1372,7 +1372,7 @@ async def reminder_status_command(m: Message):
     await m.answer(status, reply_markup=kb([
         [("🔔 Запустить 10 минут", "v2:activate10"),
          ("📸 Тестовый мем", "v2:photo_test")],
-        [("⚙️ Настройки", "v2:settings"), ("🏠 Меню", "v2:home")],
+        [("⚙️ Настройки", "v2:settings"), ("🏠 На базу", "v2:home")],
     ]))
 
 
