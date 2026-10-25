@@ -228,7 +228,7 @@ async def meme_status(m: Message):
     await m.answer(f"🎭 МЕМ-СТУДИЯ\n\nОригинальные картинки: {original_count}\n"
                    f"Одобренные чужие: {curated_count}\nНа проверке: {pending}\n"
                    f"Запомненных показов: {sent}\nОценок: {rated}\n"
-                   f"AI-автор: {'включён' if ai_enabled else 'выключен'}\n"
+                   f"AI-автор: {'включён' if ai_enabled else 'выключен'}\n"\n                   f"AI-проверка изображений: {'включена' if os.getenv('MEME_AI_VISION', '0') == '1' and os.getenv('OPENAI_API_KEY') else 'выключена'}\n"
                    f"Поиск источников: {'включён' if os.getenv('MEME_AUTO_DISCOVERY', '1') == '1' else 'выключен'}")
 
 
@@ -245,7 +245,7 @@ async def meme_queue(m: Message):
         pending = [x for x in read_review() if x.get("status") == "needs-rights-review"]
     except (OSError, ValueError) as exc:
         return await m.answer(f"Очередь повреждена: {type(exc).__name__}. Проверь файл на сервере.")
-    pending.sort(key=lambda item: (-int(item.get("relevance", 0)), item.get("id", 0)))
+    pending.sort(key=lambda item: (-(item.get("vision_humor") or 0), -int(item.get("relevance", 0)), item.get("id", 0)))
     if not pending:
         return await m.answer("Очередь пуста. Оригинальные мемы публикуются автоматически.")
     for item in pending[:5]:
