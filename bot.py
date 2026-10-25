@@ -12,7 +12,7 @@ from aiogram import Bot, Dispatcher, F, BaseMiddleware
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile, BotCommand
 from dotenv import load_dotenv
 from meme_studio import ensure_catalog
 import context_memes
@@ -784,6 +784,17 @@ async def main():
     print("Photo meme feed enabled (Imgflip, no key required; "
           "optional paid AI only with explicit opt-in)", flush=True)
     bot = Bot(TOKEN)
+    # Native Telegram slash-menu is a compact quick entry for new users.
+    try:
+        await bot.set_my_commands([
+            BotCommand(command="start", description="🏠 Главное меню"),
+            BotCommand(command="meme", description="😂 Новый фотомем"),
+            BotCommand(command="reminders", description="🔔 Напоминания"),
+            BotCommand(command="helpme", description="🆘 Мне плохо"),
+            BotCommand(command="stats", description="📊 Статистика"),
+        ])
+    except Exception as exc:
+        print(f"Telegram command menu update failed: {type(exc).__name__}", flush=True)
     task = asyncio.create_task(reminder_loop(bot))
     followups_task = asyncio.create_task(v2_experience.followup_loop(bot, connect, kb))
     try:
