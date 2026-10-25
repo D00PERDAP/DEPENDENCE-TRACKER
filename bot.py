@@ -360,7 +360,7 @@ async def checklist(message, uid):
         session = active(c, uid)
     markup = [[(("✅ " if r["selected"] else "▫️ ") + r["title"][:55], f"toggle:{r['id']}")] for r in rows]
     markup += [[("✍️ Свой пункт", "custom")]]
-    markup += [[("▶️ Начать" if not session else "🔴 В процессе", "substance" if not session else "home")]]
+    markup += [[("▶️ Начать" if not session else "🔔 Настроить сопровождение", "v2:start" if not session else "v2:settings")]]
     markup += [[("🏠 Назад", "home")]]
     await display(message, "☑️ Я НЕ ХОЧУ\n\nНажми на то, чего сегодня НЕ хочешь делать. Повторное нажатие убирает галочку.", kb(markup))
 
