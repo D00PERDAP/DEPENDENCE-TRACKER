@@ -112,9 +112,11 @@ async def display(message, text, markup):
 def home_buttons(running=False):
     if running:
         return kb([[("☑️ Мои запреты", "check")],
+                   [("🎭 Случайный мем", "mnext")],
                    [("🫀 Как я?", "health"), ("⏹ Закончить", "finish")],
                    [("📊 Статистика", "stats"), ("⚙️ Ещё", "more")]])
     return kb([[("☑️ Я НЕ ХОЧУ", "check")],
+               [("🎭 Случайный мем", "mnext")],
                [("📊 Статистика", "stats"), ("⚙️ Ещё", "more")]])
 
 
@@ -194,6 +196,40 @@ async def meme_vote(q: CallbackQuery):
                      ON CONFLICT(user_id,meme_key) DO UPDATE SET vote=excluded.vote""",
                   (q.from_user.id, key, vote))
     await q.answer("😂 Учту!" if vote == 1 else "🥱 Учту, покажу другое!")
+
+
+@dp.message(Command("meme_status"))
+async def meme_status(m: Message):
+    admins = {int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
+    if not m.from_user or m.from_user.id not in admins:
+        return
+    from meme_review_store import read as read_review
+    root = Path(__file__).resolve().parent / "assets" / "memes"
+    categories = ("general", "ex", "calls", "money", "travel")
+    original_count = curated_count = 0
+    for category in categories:
+        folder = root / category
+        if not folder.is_dir():
+            continue
+        for path in folder.iterdir():
+            if path.is_file() and path.suffix.lower() in (".jpg", ".png", ".jpeg", ".webp"):
+                if path.name.startswith("original_"):
+                    original_count += 1
+                else:
+                    curated_count += 1
+    try:
+        pending = sum(x.get("status") == "needs-rights-review" for x in read_review())
+    except (ValueError, OSError):
+        pending = -1
+    with connect() as c:
+        rated = c.execute("SELECT COUNT(*) FROM meme_votes").fetchone()[0]
+        sent = c.execute("SELECT COUNT(*) FROM meme_sends").fetchone()[0]
+    ai_enabled = os.getenv("MEME_AI_AUTOGEN", "0") == "1" and bool(os.getenv("OPENAI_API_KEY"))
+    await m.answer(f"🎭 МЕМ-СТУДИЯ\n\nОригинальные картинки: {original_count}\n"
+                   f"Одобренные чужие: {curated_count}\nНа проверке: {pending}\n"
+                   f"Запомненных показов: {sent}\nОценок: {rated}\n"
+                   f"AI-автор: {'включён' if ai_enabled else 'выключен'}\n"
+                   f"Поиск источников: {'включён' if os.getenv('MEME_AUTO_DISCOVERY', '1') == '1' else 'выключен'}")
 
 
 @dp.message(Command("meme_queue"))
