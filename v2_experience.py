@@ -325,11 +325,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 else:
                     sid = session["id"]
                 db.set_setting(c, uid, base_interval=minutes, quiet=0, boost_until=None)
-                due = stamp(now() + timedelta(minutes=minutes))
-                c.execute("""INSERT INTO alerts(user_id,session_id,interval_min,next_at)
-                             VALUES(?,?,?,?) ON CONFLICT(user_id)
-                             DO UPDATE SET session_id=excluded.session_id,interval_min=excluded.interval_min,
-                                           next_at=excluded.next_at""", (uid, sid, minutes, due))
+                db.schedule_alert(c, uid, sid, minutes, now())
                 selected = [x["title"] for x in picked(c, uid)]
                 selected_sub = settings["last_substance"]
             await panel(q,
@@ -346,6 +342,38 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                                          risk_from_titles(selected), connect,
                                          meme_key, record_meme, meme_buttons)
             return
+
+        if action == "activate10":
+            with connect() as c:
+                settings, session = setup_state(c, uid)
+                if not session:
+                    return await panel(q,
+                        "Нет активной сессии. Выбери вещество, затем включи 10 минут.",
+                        [[("▶️ Начать", "v2:start"), ("🏠 Меню", "v2:home")]])
+                db.set_setting(c, uid, base_interval=10, quiet=0, boost_until=None)
+                db.schedule_alert(c, uid, session["id"], 10, now())
+                substance = session["substance"]
+                titles = [x["title"] for x in picked(c, uid)]
+            await panel(q, "🔔 РАССЫЛКА ВКЛЮЧЕНА\n\n"
+                         "Мем-картинка и напоминание каждые 10 минут.\n"
+                         "Первое тестовое фото отправляю прямо сейчас.\n"
+                         "При необходимости выключи рассылку в настройках.", [
+                [("📸 Ещё тестовый мем", "v2:photo_test"),
+                 ("⚙️ Настройки", "v2:settings")],
+                [("🏠 Меню", "v2:home")],
+            ])
+            return await context_memes.send(q.message, uid, substance,
+                                            risk_from_titles(titles), connect,
+                                            meme_key, record_meme, meme_buttons)
+
+        if action == "photo_test":
+            with connect() as c:
+                settings, session = setup_state(c, uid)
+                substance = session["substance"] if session else settings["last_substance"]
+                titles = [x["title"] for x in picked(c, uid)]
+            return await context_memes.send(q.message, uid, substance,
+                                            risk_from_titles(titles), connect,
+                                            meme_key, record_meme, meme_buttons)
 
         if action == "impulses":
             return await panel(q, "🔥 ОСТАНОВИ МЕНЯ\n\nЧто сейчас больше всего тянет сделать?\n"
@@ -414,8 +442,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     return await panel(q, "Сначала начни сопровождение.", [[("▶️ Начать", "v2:start")]])
                 until = stamp(now() + timedelta(hours=1))
                 db.set_setting(c, uid, boost_until=until, quiet=0)
-                c.execute("UPDATE alerts SET next_at=? WHERE user_id=? AND session_id=?",
-                          (stamp(now() + timedelta(minutes=10)), uid, session["id"]))
+                db.schedule_alert(c, uid, session["id"], 10, now())
             return await panel(q, "⚡ На ближайший час включены напоминания примерно каждые 10 минут.\n"
                                "Выключить их можно в «Настройках».",
                                [[("⚙️ Настроить", "v2:settings"), ("🏠 Меню", "v2:home")]])
@@ -515,18 +542,42 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
             return await send_chart(q.message, uid)
 
         if action == "settings":
+            import math
             with connect() as c:
                 settings, session = setup_state(c, uid)
-            status = ("⏸ Тихо" if settings["quiet"] else f"🔔 {settings['base_interval']} минут")
+                alert = c.execute("SELECT * FROM alerts WHERE user_id=?", (uid,)).fetchone()
+            if not session:
+                status = "🔕 Сессия не запущена. Напоминания не отправляются."
+            elif not alert or alert["session_id"] != session["id"]:
+                status = "⚠️ Нет расписания для активной сессии. Ничего не отправляется."
+            elif settings["quiet"]:
+                status = "⏸ Тихий режим — рассылка отключена."
+            else:
+                from datetime import datetime, timezone
+                try:
+                    next_at = datetime.fromisoformat(alert["next_at"])
+                    if next_at.tzinfo is None:
+                        next_at = next_at.replace(tzinfo=timezone.utc)
+                    remain = math.ceil((next_at - now()).total_seconds() / 60)
+                    status = (f"🔔 Каждые {alert['interval_min']} минут.\n"
+                              f"Следующая отправка примерно через {max(0, remain)} мин.")
+                except (TypeError, ValueError):
+                    status = "⚠️ Ошибка расписания. Включи 10 минут заново."
             rows = [
+                [("🔔 Запустить 10 минут", "v2:activate10"),
+                 ("📸 Тестовый мем", "v2:photo_test")],
                 [("10 минут", "v2:setfreq:10"), ("15 минут", "v2:setfreq:15")],
                 [("30 минут", "v2:setfreq:30"), ("60 минут", "v2:setfreq:60")],
                 [("🔔 Включить" if settings["quiet"] else "⏸ Выключить",
                   "v2:quiet")],
-                [("⚡ Усилить на час", "v2:boost"), ("🏠 Меню", "v2:home")],
+                [("⚡ Усилить на час", "v2:boost"),
+                 ("🏠 Меню", "v2:home")],
             ]
-            return await panel(q, f"⚙️ НАПОМИНАНИЯ\n\nСейчас: {status}\n"
-                               "Выбираешь сам. Важные симптомы требуют помощи, а не спама.", rows)
+            if not session:
+                rows.insert(0, [("▶️ Начать сопровождение", "v2:start")])
+            return await panel(q, "⚙️ НАПОМИНАНИЯ\n\n" + status +
+                               "\n\nРассылка действует до её отключения или завершения сессии.",
+                               rows)
 
         if action == "quiet":
             with connect() as c:
@@ -535,8 +586,7 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 db.set_setting(c, uid, quiet=new_value, boost_until=None)
                 if not new_value and session:
                     minutes = int(settings["base_interval"])
-                    c.execute("UPDATE alerts SET next_at=? WHERE user_id=?",
-                              (stamp(now() + timedelta(minutes=minutes)), uid))
+                    db.schedule_alert(c, uid, session["id"], minutes, now())
             return await panel(q, "⏸ Напоминания выключены." if new_value else
                                "🔔 Напоминания снова включены.", [
                 [("⚙️ Настройки", "v2:settings"), ("🏠 Меню", "v2:home")],
