@@ -54,10 +54,10 @@ def install(dp, connect, is_admin, pirate):
     async def menu(q):
         if not allowed(q.from_user.id): return await q.answer("Нет доступа", show_alert=True)
         await q.answer()
-        await show(q, "🛠 ШТАБ МАГИ\nВыбирай раздел, вацок.", [
-            [("👥 Наши вацоки", "admin:users:0"),("🏴‍☠️ Тайные точки", "ac:treasures:0")],
+        await show(q, "🛠 ДОПОЛНИТЕЛЬНЫЙ ШТАБ\nЭ, брат, здесь инструменты управления без повторов!", [
+            [("🏴‍☠️ Тайные точки", "ac:treasures:0")],
             [("📢 Передать салам", "ac:broadcast"),("📊 Все расклады", "ac:stats")],
-            [("😂 Мемный штаб", "ac:memes"),("🛡 Кто что натворил", "ac:audit")],
+            [("🎭 Модерация мемов", "ac:memes"),("🛡 Журнал админа", "ac:audit")],
             [("🎮 События", "ac:events"),("⬅️ Штаб", "admin:panel")]
         ])
 
