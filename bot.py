@@ -177,6 +177,7 @@ def is_meme_admin_id(uid):
 class AdminAuth(StatesGroup):
     password = State()
     media = State()
+    new_person = State()
 
 
 @dp.message(F.text.regexp(r"(?i)^админ(?:\\s+.+)?$"))
@@ -256,6 +257,19 @@ async def admin_logout(q: CallbackQuery):
     await display(q.message, "Выход из админки.", kb([[("🏠 Меню", "v2:home")]]))
 
 
+def admin_people():
+    with connect() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS meme_characters (
+            name TEXT PRIMARY KEY, created_at TEXT NOT NULL
+        )""")
+        names = [row[0] for row in c.execute("SELECT name FROM meme_characters ORDER BY name")]
+    try:
+        names += list(reaction_bank.status()["people"])
+    except Exception:
+        pass
+    return sorted(set(["Меллстрой", "vjlink"] + names), key=str.casefold)
+
+
 @dp.callback_query(F.data == "admin:collections")
 async def admin_collections(q: CallbackQuery):
     await q.answer()
@@ -275,24 +289,55 @@ async def admin_collections(q: CallbackQuery):
     # Old frames are a separate legacy bank; new uploads are grouped by person.
     lines = [f"🎭 Меллстрой — {old_count + people.get('Меллстрой', 0)}",
              f"📸 vjlink — {people.get('vjlink', 0)}"]
-    lines += [f"📁 {name} — {count}" for name, count in
-              sorted(people.items()) if name not in ("Меллстрой", "vjlink")]
+    lines += [f"📁 {name} — {people.get(name, 0)}" for name in
+              admin_people() if name not in ("Меллстрой", "vjlink")]
     await display(q.message, "📁 КОЛЛЕКЦИИ\\n\\n" + "\\n".join(lines), kb([
         [("➕ Добавить фото", "admin:media")],
+        [("➕ Новый персонаж", "admin:newperson")],
         [("⬅️ Админка", "admin:panel")],
     ]))
 
 
-@dp.callback_query(F.data == "admin:media")
-async def admin_media_prompt(q: CallbackQuery):
+@dp.callback_query(F.data == "admin:newperson")
+async def admin_new_person(q: CallbackQuery, state: FSMContext):
     await q.answer()
     if not is_meme_admin_id(q.from_user.id):
         return
-    await display(q.message, "📸 КОМУ ДОБАВИТЬ ФОТО?\\n\\nВыбери коллекцию перед отправкой.", kb([
-        [("🎭 Меллстрой", "admin:person:mellstroy")],
-        [("📸 vjlink", "admin:person:vjlink")],
-        [("⬅️ Админка", "admin:panel")],
+    await state.set_state(AdminAuth.new_person)
+    await display(q.message, "➕ НОВЫЙ ПЕРСОНАЖ\\n\\nОтправь имя (до 40 символов).", kb([
+        [("⬅️ Коллекции", "admin:collections")],
     ]))
+
+
+@dp.message(AdminAuth.new_person)
+async def admin_save_person(m: Message, state: FSMContext):
+    if not is_meme_admin_id(m.from_user.id):
+        return
+    name = (m.text or "").strip()
+    if not name or len(name) > 40 or any(ord(c) < 32 for c in name):
+        return await m.answer("Укажи корректное имя до 40 символов.")
+    with connect() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS meme_characters (
+            name TEXT PRIMARY KEY, created_at TEXT NOT NULL
+        )""")
+        c.execute("INSERT OR IGNORE INTO meme_characters VALUES(?,?)", (name, iso()))
+    await state.update_data(person=name)
+    await state.set_state(AdminAuth.media)
+    await m.answer(f"✅ Персонаж «{name}» создан. Теперь отправь фото или видео.",
+                   reply_markup=kb([[("📁 Коллекции", "admin:collections")]]))
+
+
+@dp.callback_query(F.data == "admin:media")
+async def admin_media_prompt(q: CallbackQuery, state: FSMContext):
+    await q.answer()
+    if not is_meme_admin_id(q.from_user.id):
+        return
+    await state.clear()
+    names = admin_people()
+    rows = [[(name, "admin:person:" + str(i))] for i, name in enumerate(names)]
+    rows += [[("➕ Новый персонаж", "admin:newperson")],
+             [("⬅️ Админка", "admin:panel")]]
+    await display(q.message, "📸 КОМУ ДОБАВИТЬ ФОТО?\\n\\nВыбери персонажа.", kb(rows))
 
 
 @dp.callback_query(F.data.startswith("admin:person:"))
@@ -300,10 +345,10 @@ async def admin_select_person(q: CallbackQuery, state: FSMContext):
     await q.answer()
     if not is_meme_admin_id(q.from_user.id):
         return
-    slug = q.data.rsplit(":", 1)[-1]
-    people = {"mellstroy": "Меллстрой", "vjlink": "vjlink"}
-    person = people.get(slug)
-    if not person:
+    try:
+        index = int(q.data.rsplit(":", 1)[-1])
+        person = admin_people()[index]
+    except (ValueError, IndexError):
         return
     await state.update_data(person=person)
     await state.set_state(AdminAuth.media)
@@ -323,7 +368,7 @@ async def admin_media_upload(m: Message, state: FSMContext):
         return await m.answer("Максимум 19 МБ.")
     data = await state.get_data()
     person = data.get("person")
-    if person not in ("Меллстрой", "vjlink"):
+    if not person or person not in admin_people():
         return await m.answer("Сначала выбери коллекцию в админке.")
     status = await m.answer("⏳ Добавляю...")
     try:
@@ -337,7 +382,7 @@ async def admin_media_upload(m: Message, state: FSMContext):
             f"✅ {person}\\nНовых кадров: {result['added']}\\n"
             f"Всего в медиатеке: {result['total']}\\nДубликатов: {result['duplicates']}",
             reply_markup=kb([
-                [("➕ Ещё фото", "admin:person:" + ("mellstroy" if person == "Меллстрой" else "vjlink"))],
+                [("➕ Ещё фото", "admin:media")],
                 [("📁 Коллекции", "admin:collections")],
                 [("🛠 Админка", "admin:panel")],
             ]))
