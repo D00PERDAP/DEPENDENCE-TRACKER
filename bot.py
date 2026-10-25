@@ -252,38 +252,59 @@ async def admin_panel(q: CallbackQuery):
     ]))
 
 
-@dp.callback_query(F.data == "admin:reset_pirate")
+@dp.callback_query(F.data.startswith("admin:reset_pirate"))
 async def admin_reset_pirate_prompt(q: CallbackQuery, state: FSMContext):
-    await q.answer()
     if not is_meme_admin_id(q.from_user.id):
-        return
-    await state.set_state(AdminAuth.reset_pirate)
-    await display(q.message, "🔑 СБРОС КОДОВОГО СЛОВА\\n\\nОтправь Telegram ID пользователя. Сокровища останутся на месте.", kb([
-        [("⬅️ Админка", "admin:panel")],
+        return await q.answer("Нет доступа", show_alert=True)
+    await q.answer()
+    try:
+        page = max(0, int(q.data.split(":")[-1]))
+    except ValueError:
+        page = 0
+    with connect() as c:
+        total = c.execute("SELECT COUNT(*) FROM bot_user_profiles").fetchone()[0]
+        rows = c.execute(
+            "SELECT user_id, username, first_name FROM bot_user_profiles ORDER BY last_seen DESC LIMIT 10 OFFSET ?",
+            (page * 10,)
+        ).fetchall()
+    items = [[(f"👤 {(r['first_name'] or r['username'] or 'Пользователь')[:25]} · {r['user_id']}",
+               f"admin:pirate_pick:{r['user_id']}")] for r in rows]
+    nav = []
+    if page > 0: nav.append(("⬅️", f"admin:reset_pirate:{page-1}"))
+    if (page + 1) * 10 < total: nav.append(("➡️", f"admin:reset_pirate:{page+1}"))
+    if nav: items.append(nav)
+    items.append([("🛠 Админка", "admin:panel")])
+    await display(q.message, "🔑 ВЫБЕРИ ПОЛЬЗОВАТЕЛЯ\\n\\nСбросим его кодовое слово, сохранив сокровища.", kb(items))
+
+
+@dp.callback_query(F.data.startswith("admin:pirate_pick:"))
+async def admin_pirate_pick(q: CallbackQuery):
+    if not is_meme_admin_id(q.from_user.id):
+        return await q.answer("Нет доступа", show_alert=True)
+    uid = int(q.data.rsplit(":", 1)[-1])
+    await q.answer()
+    await display(q.message, f"🔑 Сбросить кодовое слово пользователя {uid}?\\n\\nСокровища сохранятся.", kb([
+        [("✅ Подтвердить", f"admin:pirate_confirm:{uid}")],
+        [("⬅️ Пользователи", "admin:reset_pirate:0")],
     ]))
 
 
-@dp.message(AdminAuth.reset_pirate)
-async def admin_reset_pirate_execute(m: Message, state: FSMContext):
-    if not is_meme_admin_id(m.from_user.id):
-        return
-    value = (m.text or "").strip()
-    if not value.isdecimal():
-        return await m.answer("Укажи числовой Telegram ID пользователя.")
-    uid = int(value)
+@dp.callback_query(F.data.startswith("admin:pirate_confirm:"))
+async def admin_pirate_confirm(q: CallbackQuery):
+    if not is_meme_admin_id(q.from_user.id):
+        return await q.answer("Нет доступа", show_alert=True)
+    uid = int(q.data.rsplit(":", 1)[-1])
     try:
         with pirate_quests.db() as c:
-            cursor = c.execute("DELETE FROM players WHERE user_id=?", (uid,))
-            changed = cursor.rowcount
+            changed = c.execute("DELETE FROM players WHERE user_id=?", (uid,)).rowcount
     except Exception as exc:
         print(f"Pirate password reset: {exc}", flush=True)
-        return await m.answer("Ошибка сброса. Проверь журнал сервиса.")
-    await state.clear()
-    await m.answer(
-        "✅ Кодовое слово сброшено. Сокровища сохранены. Пользователь может снова написать «клады»."
-        if changed else "Пользователь с таким ID в гавани не найден.",
-        reply_markup=kb([[("🛠 Админка", "admin:panel")]])
-    )
+        return await q.answer("Ошибка базы данных", show_alert=True)
+    await q.answer("Кодовое слово сброшено" if changed else "Кодового слова пока нет")
+    await display(q.message, "✅ Кодовое слово сброшено. Сокровища сохранены." if changed
+                  else "У пользователя пока нет кодового слова.",
+                  kb([[("👥 Пользователи", "admin:reset_pirate:0")],
+                      [("🛠 Админка", "admin:panel")]]))
 
 
 @dp.callback_query(F.data == "admin:logout")
