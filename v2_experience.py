@@ -425,7 +425,9 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                 settings, session = setup_state(c, uid)
                 current_sub = session["substance"] if session else settings["last_substance"]
                 if current_sub not in safety.SUBSTANCES:
-                    current_sub = settings["last_substance"]
+                    current_sub = "Другое / не знаю"
+                if session and settings["last_substance"] == "Другое / не знаю":
+                    db.set_setting(c, uid, last_substance=current_sub)
             return await panel(q, f"🆘 МНЕ ПЛОХО\n\nПоследнее вещество: {current_sub}\n"
                                "При боли в груди, затруднении дыхания, судорогах, "
                                "потере сознания, перегреве — сразу вызывай скорую.", [
