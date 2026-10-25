@@ -134,7 +134,7 @@ def distance(a, b):
 
 
 def list_review():
-    items = json.loads(INDEX.read_text(encoding="utf-8")) if INDEX.exists() else []
+    items = read_review()
     for item in items:
         print(f"#{item['id']} [{item['status']}] {item['preview']}")
         print(" Source:", item["source"])
@@ -148,7 +148,18 @@ def run():
     seen_urls = {item["image_url"] for item in items}
     hashes = [item["phash"] for item in items if item.get("phash")]
     added = 0
-    for source in SOURCES:
+    staged = []
+    sources = list(SOURCES)
+    try:
+        from meme_collector import scan as scan_sources, load as load_sources
+        scan_sources()
+        sources.extend(x["page"] for x in load_sources()
+                       if x.get("status") == "pending" and x.get("page", "").startswith("https://"))
+    except (OSError, ValueError, UnicodeError) as exc:
+        print("Source discovery unavailable:", type(exc).__name__)
+    for source in dict.fromkeys(sources[:35]):
+        if len(staged) >= 30:
+            break
         try:
             html, mime, charset = fetch(source, MAX_HTML)
             if mime != "text/html":
@@ -157,13 +168,13 @@ def run():
             parser = Images(source)
             parser.feed(html.decode(charset, errors="replace"))
             print("Source:", source, "image links:", len(parser.urls))
-            if source in PINTEREST_SEARCHES and not parser.urls:
-                print("Pinterest search has no accessible image metadata; no bypass attempted.")
             for url in parser.urls[:MAX_PER_SOURCE]:
+                if len(staged) >= 30:
+                    break
                 if url in seen_urls:
                     continue
-                # Reject unrelated image filenames, not merely pages with matching search terms.
-                if source not in PINTEREST_SEARCHES and not TOPIC.search(urlparse(url).path):
+                score = topical_score(url, parser.context.get(url, ""), source)
+                if score == 0:
                     continue
                 try:
                     data, content_type, _ = fetch(url, MAX_IMAGE)
@@ -182,23 +193,36 @@ def run():
                         digest = hashlib.sha256(data).hexdigest()
                         path = REVIEW / (digest + ".jpg")
                         thumbnail.save(path, "JPEG", quality=85)
-                    items.append({"id": max((x["id"] for x in items), default=0) + 1,
-                                  "status": "needs-rights-review", "source": source,
-                                  "image_url": url, "preview": str(path.relative_to(ROOT)),
-                                  "phash": phash, "found_at": datetime.now(timezone.utc).isoformat()})
+                    staged.append({"status": "needs-rights-review", "source": source,
+                                   "image_url": url, "preview": str(path.relative_to(ROOT)),
+                                   "phash": phash, "relevance": score,
+                                   "description": parser.context.get(url, "")[:280].strip(),
+                                   "found_at": datetime.now(timezone.utc).isoformat()})
                     hashes.append(phash)
                     seen_urls.add(url)
-                    added += 1
                 except (OSError, ValueError, UnidentifiedImageError) as exc:
                     print("  Skipped image:", type(exc).__name__)
         except (OSError, ValueError, UnicodeError) as exc:
             print("Source unavailable:", source, type(exc).__name__)
-    INDEX.parent.mkdir(parents=True, exist_ok=True)
-    tmp = INDEX.with_suffix(".tmp")
-    tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(INDEX)
-    print(f"Review images added: {added}. Total queued: {len(items)}.")
-    print("Pinterest search terms configured:", len(PINTEREST_TERMS), "(no unauthorized Pinterest scraping).")
+    def merge(latest):
+        nonlocal added
+        urls = {x.get("image_url") for x in latest}
+        existing_hashes = [x.get("phash") for x in latest if x.get("phash")]
+        next_id = max((x["id"] for x in latest), default=0)
+        for item in staged:
+            if item["image_url"] in urls or any(distance(item["phash"], h) <= 5 for h in existing_hashes):
+                continue
+            next_id += 1
+            item["id"] = next_id
+            latest.append(item)
+            urls.add(item["image_url"])
+            existing_hashes.append(item["phash"])
+            added += 1
+        return len(latest)
+
+    total = update_review(merge)
+    print(f"Review images added: {added}. Total queued: {total}.")
+    print("Pinterest discovery is disabled without an authorized source/API.")
     print("Previews are NOT published. Source rights and actual meme relevance must be verified.")
 
 
