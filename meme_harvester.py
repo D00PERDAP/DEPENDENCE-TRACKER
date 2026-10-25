@@ -144,7 +144,7 @@ def list_review():
 
 def run():
     REVIEW.mkdir(parents=True, exist_ok=True)
-    items = json.loads(INDEX.read_text(encoding="utf-8")) if INDEX.exists() else []
+    items = read_review()
     seen_urls = {item["image_url"] for item in items}
     hashes = [item["phash"] for item in items if item.get("phash")]
     added = 0
