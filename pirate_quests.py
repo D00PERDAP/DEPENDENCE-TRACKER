@@ -244,7 +244,7 @@ def install(dp):
         await q.answer()
         await clear_except_screen(q.bot, q.from_user.id)
         await track(q.from_user.id, await q.message.answer_location(row["latitude"],row["longitude"]))
-        await track(q.from_user.id, await q.message.answer_photo(row["photo_id"],caption=f"🏴‍☠️ {row['title']}",
+        await track(q.from_user.id, await q.message.answer_photo(row["photo_id"],caption=f"🏴‍☠️ {row['title']}\n\n📍 Твои корды, вацок — в сообщении выше.\n📸 Твоя фотка — здесь.",
             reply_markup=buttons([[("🏴‍☠️ Я пришёл на место",f"pq:arrive:{tid}")]])))
 
     @dp.callback_query(F.data.startswith("pq:arrive:"))
