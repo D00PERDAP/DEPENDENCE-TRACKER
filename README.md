@@ -50,6 +50,7 @@
 **Рабочая ветка проекта:** feature/minimal-checklist-tracker. Она пока может отличаться от main. Проверь, что Git действительно установил нужную ветку. Не применяй reset --hard и не удаляй untracked-файлы.
 
 ~~~bash
+set -e
 cd /opt/dependence-tracker
 git status --short
 git fetch origin feature/minimal-checklist-tracker
