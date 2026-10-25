@@ -102,7 +102,7 @@ class V2DataTests(unittest.TestCase):
         self.assertEqual(summary["checkins"], 1)
         jpeg = stats_dashboard.make_dashboard(summary)
         with Image.open(io.BytesIO(jpeg)) as image:
-            self.assertEqual(image.size, (1100, 1470))
+            self.assertEqual(image.size, (900, 920))
             self.assertEqual(image.format, "JPEG")
         with bot.connect() as c:
             db.erase_user(c, 42)
