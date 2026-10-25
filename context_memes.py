@@ -5,6 +5,8 @@ import os
 import random
 import re
 import urllib.request
+import urllib.parse
+import hashlib
 from io import BytesIO
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -66,10 +68,59 @@ def _wrap(draw, text, font, max_width):
 
 def _photo(event):
     base = ROOT / "assets"
-    # Prefer separate portraits: assets/politicians/{putin,medvedev,lavrov,zhirinovsky}_*.jpg
-    portraits = [p for p in (base / "politicians").glob("*") if p.suffix.lower() in (".jpg", ".jpeg", ".png", ".webp")]
-    if portraits:
-        return random.choice(portraits)
+    portraits = base / "politicians"
+    portraits.mkdir(parents=True, exist_ok=True)
+    files = [p for p in portraits.glob("*.jpg")]
+    # Try a new public-domain or Creative Commons portrait until the cache is full.
+    if len(files) < 24:
+        names = ["Vladimir Putin", "Dmitry Medvedev", "Sergey Lavrov", "Vladimir Zhirinovsky"]
+        random.shuffle(names)
+        for name in names:
+            try:
+                params = urllib.parse.urlencode({
+                    "action": "query", "format": "json", "generator": "search",
+                    "gsrsearch": name, "gsrnamespace": 6, "gsrlimit": 30,
+                    "prop": "imageinfo", "iiprop": "url|mime|extmetadata",
+                    "iiurlwidth": 1000,
+                })
+                req = urllib.request.Request("https://commons.wikimedia.org/w/api.php?" + params,
+                                            headers={"User-Agent": "DependenceTrackerBot/1.0"})
+                with urllib.request.urlopen(req, timeout=8) as res:
+                    data = json.load(res)
+                candidates = list(data.get("query", {}).get("pages", {}).values())
+                random.shuffle(candidates)
+                for page in candidates:
+                    info = (page.get("imageinfo") or [{}])[0]
+                    license_name = (info.get("extmetadata", {}).get("LicenseShortName", {}).get("value", "")).lower()
+                    if not (license_name.startswith("cc by") or license_name in ("public domain", "cc0", "cc0 1.0")):
+                        continue
+                    url = info.get("thumburl") or info.get("url")
+                    if info.get("mime") not in ("image/jpeg", "image/png"):
+                        continue
+                    if (urllib.parse.urlsplit(url or "").hostname or "") != "upload.wikimedia.org":
+                        continue
+                    dest = portraits / (hashlib.sha256(url.encode()).hexdigest()[:16] + ".jpg")
+                    if dest.exists():
+                        continue
+                    req = urllib.request.Request(url, headers={"User-Agent": "DependenceTrackerBot/1.0"})
+                    with urllib.request.urlopen(req, timeout=8) as res:
+                        data = res.read(8_000_001)
+                    if len(data) > 8_000_000:
+                        continue
+                    with Image.open(BytesIO(data)) as img:
+                        if min(img.size) < 300:
+                            continue
+                        img.convert("RGB").save(dest, "JPEG", quality=88)
+                    (portraits / (dest.stem + ".txt")).write_text(
+                        page.get("title", "") + " | " + license_name +
+                        " | https://commons.wikimedia.org/wiki/" +
+                        urllib.parse.quote(page.get("title", "").replace(" ", "_")), encoding="utf-8")
+                    files.append(dest)
+                    return dest
+            except Exception:
+                continue
+    if files:
+        return random.choice(files)
     cached = list((base / "photo_cache").glob("putin_*.jpg"))
     local = base / "putin.jpg"
     if local.exists():
