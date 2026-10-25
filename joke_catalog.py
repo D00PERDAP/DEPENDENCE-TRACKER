@@ -1,7 +1,7 @@
-"""Exactly 3,000 prewritten one-sentence Russian drug-absurdist photo captions.
+"""Exactly 3,000 short Russian absurdist photo captions.
 
 The shipped jokes_3000.json is the source of truth; no paid text API and no
-mechanical random-word insertion at delivery time. Selection prefers the user's
+runtime word substitution. Selection prefers the user's
 current risk/theme and avoids reusing a caption until all relevant ones have
 been used. No branding in the captions; each has exactly one sentence.
 """
@@ -38,10 +38,10 @@ def bank():
         sentence = row["text"].strip()
         if uid in ids or sentence in texts:
             raise ValueError("Duplicate joke id or text")
-        if len(sentence) > 125 or len(sentence) < 24:
+        if len(sentence) > 48 or len(sentence) < 3:
             raise ValueError(f"Joke length unsuitable for photo: {uid}")
-        if not sentence.endswith(".") or sentence.count(".") != 1:
-            raise ValueError(f"Joke is not exactly one sentence: {uid}")
+        if "\n" in sentence or sentence.count(".") > 1:
+            raise ValueError(f"Joke must be a short caption: {uid}")
         if row["risk"] not in FIRST_TRY or row["mood"] not in KNOWN_MOODS:
             raise ValueError(f"Unrecognized tags: {uid}")
         if any(phrase in sentence.lower() for phrase in BANNED):
@@ -80,6 +80,18 @@ def init(connect):
                      )""")
         c.execute("""CREATE INDEX IF NOT EXISTS idx_joke_delivery_id
                      ON joke_delivery(joke_id)""")
+        # One-time migration: forget ONLY the obsolete caption history, never
+        # sessions, personal settings, uploaded photos or unrelated meme votes.
+        c.execute("""CREATE TABLE IF NOT EXISTS joke_catalog_meta(
+                     key TEXT PRIMARY KEY, value TEXT NOT NULL)""")
+        row=c.execute("SELECT value FROM joke_catalog_meta WHERE key='edition'").fetchone()
+        if row is None or row[0] != 'short-absurd-v2':
+            c.execute("DELETE FROM joke_sent")
+            c.execute("DELETE FROM joke_delivery")
+            c.execute("""INSERT INTO joke_catalog_meta(key,value)
+                         VALUES('edition','short-absurd-v2')
+                         ON CONFLICT(key) DO UPDATE SET value=excluded.value""")
+
 
 
 def select(connect,user_id,risk,serial):
@@ -163,6 +175,8 @@ SCENE_TERMS = {
              "деньг", "зарплат", "квитанц"),
     "group": ("друз", "сосед", "жильц", "комисс", "совет"),
     "gaming": ("стрим", "видео", "экран", "игр", "галере"),
+    "bathroom": ("душ", "ванн", "унитаз", "туалет", "мыл"),
+    "portrait": ("лицо", "глаз", "плач", "орёт", "смотрит", "мелстрой"),
 }
 
 
