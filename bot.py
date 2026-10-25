@@ -130,20 +130,70 @@ async def home(message, uid):
     await display(message, text, home_buttons(bool(session)))
 
 
+def meme_key(path):
+    relative = Path(path).resolve().relative_to(Path(__file__).resolve().parent)
+    return hashlib.sha256(relative.as_posix().encode("utf-8")).hexdigest()[:16]
+
+
+def meme_buttons(path):
+    key = meme_key(path)
+    return kb([[("😂 Зашло", f"mv:1:{key}"), ("🥱 Не смешно", f"mv:-1:{key}")],
+               [("🎲 Ещё мем", "mnext")]])
+
+
+def record_meme(uid, path):
+    key = meme_key(path)
+    with connect() as c:
+        c.execute("INSERT INTO meme_sends(user_id,meme_key,at) VALUES(?,?,?)", (uid, key, iso()))
+        c.execute("""DELETE FROM meme_sends WHERE user_id=? AND id NOT IN
+                     (SELECT id FROM meme_sends WHERE user_id=? ORDER BY id DESC LIMIT 80)""",
+                  (uid, uid))
+
+
+async def deliver_meme(message, uid, category="general"):
+    from aiogram.types import FSInputFile
+    path = choose_meme(category, user_id=uid) or choose_meme("general", user_id=uid)
+    if not path:
+        await asyncio.to_thread(ensure_catalog, limit=20)
+        path = choose_meme(category, user_id=uid) or choose_meme("general", user_id=uid)
+    if not path:
+        return await message.answer("Не удалось подготовить картинку. Попробуй позже.")
+    sent = await message.answer_photo(FSInputFile(path),
+                                      caption="💀 НЕ НАТВОРИ ДЕЛОВ • чёрный юмор, а не советы",
+                                      reply_markup=meme_buttons(path))
+    record_meme(uid, path)
+    return sent
+
+
 @dp.message(Command("meme"))
 async def send_test_meme(m: Message):
-    """Send one approved local meme on request, never an unreviewed web image."""
-    path = choose_meme("general")
-    if not path:
-        for category in ("ex", "calls", "money", "travel"):
-            path = choose_meme(category)
-            if path:
-                break
-    if not path:
-        await m.answer("Пока нет проверенных мемов. Сначала добавь картинку через meme_collector.py approve.")
-        return
-    from aiogram.types import FSInputFile
-    await m.answer_photo(FSInputFile(path), caption="💀 Не натвори делов. Ты сам выбираешь, чего не делать.")
+    await deliver_meme(m, m.from_user.id)
+
+
+@dp.callback_query(F.data == "mnext")
+async def meme_next(q: CallbackQuery):
+    await q.answer()
+    await deliver_meme(q.message, q.from_user.id)
+
+
+@dp.callback_query(F.data.startswith("mv:"))
+async def meme_vote(q: CallbackQuery):
+    try:
+        _, value, key = q.data.split(":")
+        vote = int(value)
+        if vote not in (-1, 1) or len(key) != 16 or any(ch not in "0123456789abcdef" for ch in key):
+            raise ValueError()
+    except (ValueError, TypeError, AttributeError):
+        return await q.answer("Неверная оценка", show_alert=True)
+    with connect() as c:
+        shown = c.execute("SELECT 1 FROM meme_sends WHERE user_id=? AND meme_key=? LIMIT 1",
+                          (q.from_user.id, key)).fetchone()
+        if not shown:
+            return await q.answer("Этот мем тебе не отправляли", show_alert=True)
+        c.execute("""INSERT INTO meme_votes(user_id,meme_key,vote) VALUES(?,?,?)
+                     ON CONFLICT(user_id,meme_key) DO UPDATE SET vote=excluded.vote""",
+                  (q.from_user.id, key, vote))
+    await q.answer("😂 Учту!" if vote == 1 else "🥱 Учту, покажу другое!")
 
 
 @dp.message(Command("meme_queue"))
