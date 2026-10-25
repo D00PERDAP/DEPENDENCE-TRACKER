@@ -36,10 +36,10 @@ def make_dashboard(summary):
     draw = ImageDraw.Draw(picture)
     draw.rectangle((0, 0, W, 13), fill=RED)
     t(draw, (65, 54), "НЕ НАТВОРИ ДЕЛОВ", 53)
-    t(draw, (65, 126), f"СТАТИСТИКА  •  {summary['month']}  •  UTC", 28, MUTED)
+    t(draw, (65, 126), f"ТВОИ РАСКЛАДЫ  •  {summary['month']}  •  UTC", 28, MUTED)
     data = [
-        (summary["episodes"], "Отмечено сессий", RED),
-        (summary["checkins"], "Отметок о самочувствии", AMBER),
+        (summary["episodes"], "Запусков сопровождения", RED),
+        (summary["checkins"], "Проверок самочувствия", AMBER),
         (summary["resolved"], "Рисков отмечено как пройденные", GREEN),
     ]
     for i, (value, label, shade) in enumerate(data):
@@ -48,16 +48,16 @@ def make_dashboard(summary):
         t(draw, (left + 22, 226), value, 65, shade)
         # Short labels at this size, with manual split for the longest.
         if i == 2:
-            t(draw, (left + 21, 310), "Рисков удалось", 22, MUTED)
-            t(draw, (left + 21, 335), "переждать", 22, MUTED)
+            t(draw, (left + 21, 310), "Опасных порывов", 22, MUTED)
+            t(draw, (left + 21, 335), "переждал", 22, MUTED)
         elif i == 1:
-            t(draw, (left + 21, 316), "Проверок состояния", 21, MUTED)
+            t(draw, (left + 21, 316), "Проверок себя", 21, MUTED)
         else:
             t(draw, (left + 21, 316), label, 22, MUTED)
 
     card(draw, (65, 403, 1034, 771))
-    t(draw, (93, 428), "ОТМЕТКИ ПО ДНЯМ", 34)
-    t(draw, (94, 478), "Число начатых сессий • не измерение употребления", 21, MUTED)
+    t(draw, (93, 428), "КАК ПРОШЁЛ МЕСЯЦ", 34)
+    t(draw, (94, 478), "Сколько раз включал сопровождение по дням", 21, MUTED)
     counts = summary["days"]
     maximum = max(1, max(counts, default=0))
     x0, chart_width = 108, 871
@@ -77,8 +77,8 @@ def make_dashboard(summary):
             t(draw, (xx + 2, 711), str(index + 1), 20, MUTED)
 
     card(draw, (65, 797, 1034, 1099))
-    t(draw, (93, 823), "ЧТО ОТМЕЧАЛИ", 32)
-    t(draw, (93, 867), "По веществам • число записей", 20, MUTED)
+    t(draw, (93, 823), "ЧТО ТЫ УКАЗЫВАЛ", 32)
+    t(draw, (93, 867), "Твои отметки по веществам • не оценка доз", 20, MUTED)
     top_substances = summary["substances"].most_common(4)
     if not top_substances:
         t(draw, (95, 949), "Пока нет записей за этот месяц", 30, MUTED)
@@ -95,10 +95,10 @@ def make_dashboard(summary):
             t(draw, (967, y - 2), count, 25, AMBER, anchor="ra")
 
     card(draw, (65, 1123, 1034, 1343))
-    t(draw, (93, 1152), "ЧТО ХОТЕЛОСЬ НАТВОРИТЬ", 30)
+    t(draw, (93, 1152), "КАКИЕ БЫЛИ ПОЗЫВЫ", 30)
     risks = summary["risks"].most_common(3)
     if not risks:
-        t(draw, (95, 1236), "Пока нет отметок о рискованных импульсах", 24, MUTED)
+        t(draw, (95, 1236), "Пока нет отметок о рискованных желаниях", 24, MUTED)
     else:
         mx = max(1, risks[0][1])
         for idx, (key, count) in enumerate(risks):
@@ -108,22 +108,32 @@ def make_dashboard(summary):
             draw.rounded_rectangle((590, y + 7, 590 + 327 * count / mx, y + 22),
                                    radius=7, fill=GREEN)
             t(draw, (970, y), count, 21, GREEN, anchor="ra")
-    t(draw, (65, 1382), "Только твои отметки. Это не диагноз и не оценка доз/здоровья.", 23, MUTED)
-    t(draw, (65, 1421), "Данные приватны • Отчёт не сохраняется на сервере", 20, MUTED)
+    t(draw, (65, 1382), "Э, брат, это только твои отметки, не диагноз и не оценка доз.", 23, MUTED)
+    t(draw, (65, 1421), "Твои данные личные • Картинка не сохраняется на сервере", 20, MUTED)
     output = io.BytesIO()
     picture.save(output, "JPEG", quality=89, optimize=True)
     return output.getvalue()
 
 
 def summary_caption(summary):
-    if not summary["episodes"] and not summary["event_count"]:
-        return "📊 Пока почти пусто. Отмечай события — график заполнится. Это не медицинский отчёт."
+    """Explain each number in everyday language, without overstating accuracy."""
+    month = summary["month"]
+    episodes = summary["episodes"]
+    checkins = summary["checkins"]
+    resolved = summary["resolved"]
+    lines = [
+        f"🦅 Э, вацок, вот твои расклады за {month}!",
+        f"💀 {episodes} — столько раз ты включал сопровождение.",
+        f"🫀 {checkins} — столько раз отмечал своё самочувствие.",
+        f"🛡 {resolved} — столько рискованных порывов отметил как пережданные.",
+    ]
     top = summary["substances"].most_common(1)
-    risk = summary["risks"].most_common(1)
-    chunks = [f"📊 За {summary['month']}: {summary['episodes']} отмеченных сессий."]
     if top:
-        chunks.append(f"Чаще отмечено: {top[0][0]}.")
+        lines.append(f"📝 Чаще всего указывал: {top[0][0]}.")
+    risk = summary["risks"].most_common(1)
     if risk:
-        chunks.append(f"Частый импульс: {RISK_LABELS.get(risk[0][0], risk[0][0]).lower()}.")
-    chunks.append("Считаются только твои отметки, а не фактическое употребление.")
-    return "\n".join(chunks)
+        lines.append(f"⚡ Чаще отмечал желание: {RISK_LABELS.get(risk[0][0], risk[0][0]).lower()}.")
+    if not episodes and not summary["event_count"]:
+        lines.append("Пока пустовато, брат. Делай отметки — появятся графики.")
+    lines.append("Жи есть, это только твои записи, не подсчёт фактического употребления и не медицинский диагноз.")
+    return "\n".join(lines)
