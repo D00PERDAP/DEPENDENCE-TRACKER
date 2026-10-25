@@ -117,6 +117,9 @@ def install(dp, *, is_admin, user_exists, render_text):
         if not is_admin(m.from_user.id):
             await state.clear()
             return
+        if (m.text or "").strip() == "/cancelreward":
+            await state.clear()
+            return await m.answer("Выдача отменена, брат.")
         name = (m.text or "").strip()
         if not 1 <= len(name) <= 80:
             await m.answer("Название должно быть от 1 до 80 символов, брат.")
@@ -131,6 +134,9 @@ def install(dp, *, is_admin, user_exists, render_text):
         if not is_admin(m.from_user.id):
             await state.clear()
             return
+        if (m.text or "").strip() == "/cancelreward":
+            await state.clear()
+            return await m.answer("Выдача отменена, брат.")
         skip = (m.text or "").strip().casefold() == "без фото"
         if not skip and not m.photo:
             await m.answer("Отправь фото или напиши «без фото», вацок.")
