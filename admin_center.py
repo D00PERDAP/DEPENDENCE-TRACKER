@@ -70,7 +70,7 @@ def install(dp, connect, is_admin, pirate):
         with pirate.db() as c:
             treasures=c.execute("SELECT COUNT(*) FROM treasures").fetchone()[0]
             banned=c.execute("SELECT COUNT(*) FROM banned_players").fetchone()[0]
-        await show(q, f"📊 РАСКЛАДЫ ПО БОТУ\nПользователей: {users}\nАктивных за 7 дней (по last_seen): {active}\nСессий всего: {sessions}\nОтправок мемов: {meme_count}\nСокровищ: {treasures}\nБлокировок гавани: {banned}\n\nБез личных записей.", [[("⬅️ Обратно, брат","admin:panel")]])
+        await show(q, f"🦅 МАГА | РАСКЛАДЫ ШТАБА\n\n👥 Вацоков: {users}\n🟢 Были за неделю: {active}\n💀 Сопровождений: {sessions}\n😂 Мемов отправлено: {meme_count}\n🏴‍☠️ Игровых сокровищ: {treasures}\n🚫 Блокировок: {banned}\n\nЛичные записи не показываем.", [[("⬅️ В штаб, брат","admin:panel")]])
 
     @dp.callback_query(F.data.startswith("ac:treasures:"))
     async def treasures(q):
@@ -130,7 +130,7 @@ def install(dp, connect, is_admin, pirate):
             disabled={r[0] for r in c.execute("SELECT name FROM disabled_meme_characters")}
         rows=[[(("🔴 " if name in disabled else "🟢 ")+name[:35],f"ac:meme:{i}")] for i,name in enumerate(names)]
         rows += [[("📁 Все коллекции","admin:collections")],[("⬅️ Мемный центр","admin:memehub")]]
-        await show(q,"😂 МЕМНЫЙ ШТАБ\nПерсонажи из каталога. Список отключений для модерации (пока не влияет на выдачу мемов).",rows)
+        await show(q,"🦅 МАГА | МЕМНЫЙ КОНТРОЛЬ\n\nВыбирай персонажа, вацок.\nВажно: эти отметки пока не влияют на выдачу мемов.",rows)
 
     @dp.callback_query(F.data.startswith("ac:meme:"))
     async def meme_toggle(q):
