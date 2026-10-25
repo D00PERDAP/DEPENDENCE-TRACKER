@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sqlite3
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -8,7 +9,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message, BufferedInputFile, InputMediaPhoto
 from dotenv import load_dotenv
 from meme_cards import card
 from memes import streak_caption, session_caption, completed_goal_caption, ended_session_caption
@@ -44,7 +45,7 @@ def keyboard(rows):
     return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=t, callback_data=v) for t,v in row] for row in rows])
 
 def main_kb():
-    return keyboard([[('💊 Вещество','substances'),('📝 Сессия','session')], [('🎯 Цели','goals'),('📊 Статистика','stats')], [('🖼 Мем-картинка','meme')], [('🛟 Безопасность','safety'),('⚙️ Настройки','settings')]])
+    return keyboard([[('🎲 Мем','meme'),('📝 Записать','session')], [('📊 Мой прогресс','stats'), ('⚙️ Ещё','more')]])
 
 def active(c, uid):
     return c.execute('SELECT * FROM sessions WHERE user_id=? AND ended IS NULL ORDER BY id DESC LIMIT 1', (uid,)).fetchone()
@@ -55,25 +56,40 @@ def selected(c, uid):
 
 async def show(message, text, kb=None):
     try:
-        await message.edit_text(text, reply_markup=kb)
+        if message.photo:
+            await message.delete()
+            await message.answer(text, reply_markup=kb)
+        else:
+            await message.edit_text(text, reply_markup=kb)
     except Exception:
         await message.answer(text, reply_markup=kb)
 
-async def home(message, uid):
+async def send_card(message, uid, menu=False):
     with conn() as c:
-        sub = selected(c,uid)
-        ses = active(c,uid)
-        last = c.execute('SELECT started FROM sessions WHERE user_id=? ORDER BY id DESC LIMIT 1',(uid,)).fetchone()
-    days = int((datetime.now(timezone.utc)-datetime.fromisoformat(last['started'])).total_seconds()//86400) if last else None
-    title = f'🕶 НЕ СЕГОДНЯ\n\n💊 Вещество: {sub or "не выбрано"}\n'
-    if ses:
-        title += '🔴 Сессия открыта. Не геройствуй — следи за состоянием.'
-    elif days is not None:
-        title += streak_caption(days, sub or 'вещества') + '\n(С последней зарегистрированной сессии — если все сессии записаны.)'
-    else:
-        title += '🗿 ИСТОРИЯ ЧИСТА. НАЧИНАЕМ БЕЗ ПАФОСА.'
-    title += '\n\nЭто журнал снижения вреда, а не гарантия безопасности.'
-    await show(message,title,main_kb())
+        last = c.execute('SELECT substance, started FROM sessions WHERE user_id=? ORDER BY started DESC LIMIT 1', (uid,)).fetchone()
+        sub = selected(c, uid)
+        current = active(c, uid)
+    days = max(0, (datetime.now(timezone.utc) - datetime.fromisoformat(last['started'])).days) if last else -1
+    variant = secrets.randbelow(10000)
+    subtitle = ('🔴 Идёт запись сессии.' if current else
+                f'🗿 {days} дн. с последней записи в журнале.' if last else
+                '🗿 Начни с записи или просто лови мем.')
+    subtitle += '\\nСчётчик основан только на твоих записях.'
+    kb = main_kb() if menu else keyboard([[('🎲 Другой мем','meme')], [('🏠 Меню','home')]])
+    try:
+        picture = await asyncio.to_thread(card, days, last['substance'] if last else (sub or 'вещества'), variant)
+        if getattr(message, 'photo', None):
+            try:
+                await message.edit_media(InputMediaPhoto(media=BufferedInputFile(picture, filename='meme.png'), caption=subtitle), reply_markup=kb)
+                return
+            except Exception:
+                pass
+        await message.answer_photo(BufferedInputFile(picture, filename='meme.png'), caption=subtitle, reply_markup=kb)
+    except Exception:
+        await message.answer('🗿 НЕ СЕГОДНЯ\\n' + subtitle, reply_markup=kb)
+
+async def home(message, uid):
+    await send_card(message, uid, menu=True)
 
 bot_dp = Dispatcher()
 
@@ -88,22 +104,17 @@ async def back(q:CallbackQuery):
 
 @bot_dp.callback_query(F.data == 'meme')
 async def meme(q:CallbackQuery):
-    with conn() as c:
-        last = c.execute('SELECT substance, started FROM sessions WHERE user_id=? ORDER BY started DESC LIMIT 1', (q.from_user.id,)).fetchone()
-    if not last:
-        await q.answer('Сначала добавь сессию в журнал', show_alert=True)
-        return
-    days = max(0, int((datetime.now(timezone.utc) - datetime.fromisoformat(last['started'])).total_seconds() // 86400))
-    try:
-        picture = await asyncio.to_thread(card, days, last['substance'], days)
-        await q.message.answer_photo(
-            BufferedInputFile(picture, filename='meme.png'),
-            caption='🗿 Мем по журналу. Счётчик от последней записи, а не подтверждение трезвости.',
-            reply_markup=keyboard([[('🎲 Ещё мем','meme')], [('⬅️ Меню','home')]])
-        )
-        await q.answer()
-    except Exception:
-        await q.answer('Не удалось создать картинку. Проверь Pillow и шрифты.', show_alert=True)
+    await q.answer()
+    await send_card(q.message, q.from_user.id)
+
+@bot_dp.callback_query(F.data == 'more')
+async def more(q:CallbackQuery):
+    await q.answer()
+    await show(q.message, '⚙️ ЕЩЁ\\nВсё полезное без десятка кнопок на главной.', keyboard([
+        [('💊 Вещество','substances'), ('🎯 Цели','goals')],
+        [('🛟 Безопасность','safety'), ('⚙️ Настройки','settings')],
+        [('🏠 Меню','home')]
+    ]))
 
 @bot_dp.callback_query(F.data == 'substances')
 async def substances(q:CallbackQuery):
@@ -128,7 +139,7 @@ async def session(q:CallbackQuery):
         sub = selected(c,q.from_user.id)
         ses = active(c,q.from_user.id)
     if not sub:
-        return await show(q.message,'Сначала выбери вещество.',keyboard([[('💊 Выбрать','substances')],[('⬅️ Назад','home')]]))
+        return await show(q.message,'Для записи выбери вещество.',keyboard([[('💊 Выбрать','substances')],[('🏠 Меню','home')]]))
     if ses:
         return await show(q.message,f'🔴 СЕССИЯ ОТКРЫТА\n{sub}\nНачало (UTC): {ses["started"]}\n\nЗаписывай самочувствие, не ориентируйся на таймер как на признак безопасности.',keyboard([[('📝 Добавить заметку','note')],[('🎯 Цели','goals')],[('⏹ Завершить сессию','end')],[('⬅️ Назад','home')]]))
     await show(q.message,f'📝 НОВАЯ СЕССИЯ: {sub}\n\nБот фиксирует время и заметки. Он не рассчитывает безопасные дозы.',keyboard([[('▶️ Начать запись','begin')],[('⬅️ Назад','home')]]))
@@ -233,7 +244,7 @@ async def stats(q:CallbackQuery):
     else:
         last=datetime.fromisoformat(rows[0]['started']);days=(datetime.now(timezone.utc)-last).days
         txt=f'📊 СТАТИСТИКА\n\nВсего сессий: {len(rows)}\nС последней записи: {days} дн.\nПоследнее вещество: {rows[0]["substance"]}\n\nЭто период с последней записи, не медицинская оценка.'
-    await q.answer();await show(q.message,txt,keyboard([[('⬅️ Назад','home')]]))
+    await q.answer();await show(q.message,txt,keyboard([[('⚙️ Ещё','more')], [('🏠 Меню','home')]]))
 
 @bot_dp.callback_query(F.data == 'safety')
 async def safety(q:CallbackQuery):
