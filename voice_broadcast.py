@@ -161,12 +161,7 @@ def split_voice_text(text, limit=135):
             sentence.strip(), width=limit, break_long_words=True,
             break_on_hyphens=False
         ))
-    chunks = []
-    for piece in pieces:
-        if chunks and len(chunks[-1]) + len(piece) + 1 <= limit:
-            chunks[-1] += " " + piece
-        else:
-            chunks.append(piece)
+    chunks = pieces
     return chunks
 
 
@@ -215,8 +210,28 @@ async def synthesize_voice(text, output, speed="normal"):
 
     # Concatenate source files before transcoding, avoiding a separate voice
     # note per sentence. One output means one Telegram preview and one send.
+    if len(paths) > 1:
+        silence = output.parent / "maga_pause.mp3"
+        gap = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+            "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono",
+            "-t", "0.50", "-c:a", "libmp3lame", str(silence),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await gap.communicate()
+        if gap.returncode != 0:
+            raise RuntimeError("Не получилось вставить паузы в голосовое.")
+        playlist = []
+        for i, path in enumerate(paths):
+            playlist.append(path)
+            if i < len(paths) - 1:
+                playlist.append(silence)
+    else:
+        playlist = paths
+
     manifest.write_text(
-        "".join(f"file '{path.name}'\n" for path in paths),
+        "".join(f"file '{path.name}'\n" for path in playlist),
         encoding="utf-8",
     )
     proc = await asyncio.create_subprocess_exec(
