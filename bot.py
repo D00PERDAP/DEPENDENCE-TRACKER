@@ -29,6 +29,7 @@ import v2_data
 import v2_experience
 import ui_manager
 import game_rewards
+import voice_broadcast
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
@@ -251,6 +252,7 @@ async def admin_panel(q: CallbackQuery):
     await display(q.message, f"🦅 МАГА | ШТАБ\n\nНа связи, главный!\n👥 Вацоков: {users}\n🛡 Админов: {admins}\n\nКуда двигаем, брат?", kb([
         [("👥 Пользователи", "admin:users:0"), ("🏴‍☠️ Тайные точки", "ac:treasures:0")],
         [("😂 Мемный центр", "admin:memehub"), ("📢 Рассылка", "ac:broadcast")],
+        [("🎙 Голос Маги", "ac:voice")],
         [("📊 Аналитика", "ac:stats"), ("🛡 Журнал", "ac:audit")],
         [("🎮 События", "ac:events")],
         [("🚪 Выйти из админки", "admin:logout"), ("🏠 На базу", "v2:home")],
@@ -1464,6 +1466,10 @@ def connect_user_exists(uid):
 
 pirate_quests.install(dp)
 admin_center.install(dp, connect, is_meme_admin_id, pirate_quests)
+voice_broadcast.install(
+    dp, is_admin=is_meme_admin_id, connect=connect,
+    render_text=ui_manager.render_text, log=admin_center.log,
+)
 game_rewards.install(
     dp, is_admin=is_meme_admin_id,
     user_exists=lambda uid: connect_user_exists(uid),
