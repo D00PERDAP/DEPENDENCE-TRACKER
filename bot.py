@@ -228,7 +228,8 @@ async def meme_status(m: Message):
     await m.answer(f"🎭 МЕМ-СТУДИЯ\n\nОригинальные картинки: {original_count}\n"
                    f"Одобренные чужие: {curated_count}\nНа проверке: {pending}\n"
                    f"Запомненных показов: {sent}\nОценок: {rated}\n"
-                   f"AI-автор: {'включён' if ai_enabled else 'выключен'}\n"\n                   f"AI-проверка изображений: {'включена' if os.getenv('MEME_AI_VISION', '0') == '1' and os.getenv('OPENAI_API_KEY') else 'выключена'}\n"
+                   f"AI-автор: {'включён' if ai_enabled else 'выключен'}\n"
+                   f"AI-проверка изображений: {'включена' if os.getenv('MEME_AI_VISION', '0') == '1' and os.getenv('OPENAI_API_KEY') else 'выключена'}\n"
                    f"Поиск источников: {'включён' if os.getenv('MEME_AUTO_DISCOVERY', '1') == '1' else 'выключен'}")
 
 
