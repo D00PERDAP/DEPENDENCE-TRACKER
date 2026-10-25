@@ -243,7 +243,8 @@ def install(dp, *, connect, active, picked, ensure_preset, kb, display,
                     "Что нужно прямо сейчас?")
             await panel(q, text, [
                 [("▶️ Начать / настроить", "v2:start"), ("☑️ Мои запреты", "check")],
-                [("🔥 Останови меня", "v2:impulses"), ("🆘 Мне плохо", "v2:safety")],
+                [("🫀 Как я?", "v2:checkin"), ("🆘 Мне плохо", "v2:safety")],
+                [("🔥 Останови меня", "v2:impulses")],
                 [("📊 Моя статистика", "v2:stats"), ("🎭 Мем", "v2:meme")],
                 [("⚙️ Напоминания", "v2:settings")],
                 *([[("⏹ Завершить", "v2:finish")]] if session else []),
