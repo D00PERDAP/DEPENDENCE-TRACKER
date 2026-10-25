@@ -247,11 +247,11 @@ async def admin_panel(q: CallbackQuery):
     with connect() as c:
         users = c.execute("SELECT COUNT(*) FROM bot_user_profiles").fetchone()[0]
         admins = c.execute("SELECT COUNT(*) FROM bot_admins").fetchone()[0]
-    await display(q.message, f"🛠 ШТАБ МАГИ\\n\\nПользователей: {users}\\nАдминов: {admins}", kb([
+    await display(q.message, f"🛠 ШТАБ МАГИ\n\nПользователей: {users}\nАдминов: {admins}", kb([
         [("👥 Пользователи", "admin:users:0"), ("🏴‍☠️ Тайные точки", "ac:treasures:0")],
-        [("📁 Мемы и персонажи", "admin:collections"), ("📢 Рассылка", "ac:broadcast")],
+        [("😂 Мемный центр", "admin:memehub"), ("📢 Рассылка", "ac:broadcast")],
         [("📊 Аналитика", "ac:stats"), ("🛡 Журнал", "ac:audit")],
-        [("🎭 Модерация мемов", "ac:memes"), ("🎮 События", "ac:events")],
+        [("🎮 События", "ac:events")],
         [("🚪 Выйти из админки", "admin:logout"), ("🏠 На базу", "v2:home")],
     ]))
 
@@ -271,7 +271,7 @@ async def admin_users(q: CallbackQuery):
     if (page+1)*10 < total: nav.append(("➡️", f"admin:users:{page+1}"))
     if nav: items.append(nav)
     items.append([("🛠 Штаб Маги", "admin:panel")])
-    await display(q.message, f"👥 ВАЦОКИ В БОТЕ · {total}\\nСтраница {page+1}", kb(items))
+    await display(q.message, f"👥 ВАЦОКИ В БОТЕ · {total}\nСтраница {page+1}", kb(items))
 
 
 @dp.callback_query(F.data.startswith("admin:user:"))
@@ -288,9 +288,9 @@ async def admin_user_detail(q: CallbackQuery):
         banned = c.execute("SELECT 1 FROM banned_players WHERE user_id=?", (uid,)).fetchone() is not None
         treasures = c.execute("SELECT title FROM treasures WHERE user_id=? ORDER BY id DESC LIMIT 20", (uid,)).fetchall()
         count = c.execute("SELECT COUNT(*) FROM treasures WHERE user_id=?", (uid,)).fetchone()[0]
-    titles = "\\n".join("• " + r["title"][:60] for r in treasures) or "Нет сокровищ"
+    titles = "\n".join("• " + r["title"][:60] for r in treasures) or "Нет сокровищ"
     name = user["first_name"] or user["username"] or "Пользователь"
-    await display(q.message, f"👤 {name}\\nID: {uid}\\nДоступ: {'🚫 заблокирован' if banned else '✅ открыт'}\\nСокровищ: {count}\\n\\n{titles}", kb([
+    await display(q.message, f"👤 {name}\nID: {uid}\nДоступ: {'🚫 заблокирован' if banned else '✅ открыт'}\nСокровищ: {count}\n\n{titles}", kb([
         [(("✅ Разблокировать" if banned else "🚫 Заблокировать"), f"admin:ban_user:{uid}")],
         [("🔑 Сбросить пароль гавани", f"admin:pirate_pick:{uid}")],
         [("⬅️ Пользователи", "admin:users:0")],
@@ -336,7 +336,7 @@ async def admin_reset_pirate_prompt(q: CallbackQuery, state: FSMContext):
     if (page + 1) * 10 < total: nav.append(("➡️", f"admin:reset_pirate:{page+1}"))
     if nav: items.append(nav)
     items.append([("🛠 Штаб Маги", "admin:panel")])
-    await display(q.message, "🔑 ВЫБЕРИ ПОЛЬЗОВАТЕЛЯ\\n\\nСбросим его кодовое слово, сохранив сокровища.", kb(items))
+    await display(q.message, "🔑 ВЫБЕРИ ПОЛЬЗОВАТЕЛЯ\n\nСбросим его кодовое слово, сохранив сокровища.", kb(items))
 
 
 @dp.callback_query(F.data.startswith("admin:pirate_pick:"))
@@ -345,7 +345,7 @@ async def admin_pirate_pick(q: CallbackQuery):
         return await q.answer("Нет доступа", show_alert=True)
     uid = int(q.data.rsplit(":", 1)[-1])
     await q.answer()
-    await display(q.message, f"🔑 Сбросить пароль гавани пользователя {uid}?\\n\\nСокровища сохранятся.", kb([
+    await display(q.message, f"🔑 Сбросить пароль гавани пользователя {uid}?\n\nСокровища сохранятся.", kb([
         [("✅ Подтвердить", f"admin:pirate_confirm:{uid}")],
         [("⬅️ Пользователи", "admin:reset_pirate:0")],
     ]))
@@ -390,6 +390,22 @@ def admin_people():
     return sorted(set(["Меллстрой", "vjlink"] + names), key=str.casefold)
 
 
+@dp.callback_query(F.data == "admin:memehub")
+async def admin_memehub(q: CallbackQuery):
+    await q.answer()
+    if not is_meme_admin_id(q.from_user.id):
+        return
+    await display(q.message,
+        "😂 МЕМНЫЙ ЦЕНТР МАГИ\n\n"
+        "Кадры, персонажи и проверка мемов — в одном месте.",
+        kb([
+            [("📁 Коллекции и редактор", "admin:collections")],
+            [("🛡 Модерация", "ac:memes")],
+            [("📸 Добавить кадры", "admin:media")],
+            [("⬅️ Штаб Маги", "admin:panel")],
+        ]))
+
+
 @dp.callback_query(F.data == "admin:collections")
 async def admin_collections(q: CallbackQuery):
     await q.answer()
@@ -411,7 +427,7 @@ async def admin_collections(q: CallbackQuery):
              f"📸 vjlink — {people.get('vjlink', 0)}"]
     lines += [f"📁 {name} — {people.get(name, 0)}" for name in
               admin_people() if name not in ("Меллстрой", "vjlink")]
-    await display(q.message, "😂 МЕМНЫЙ СКЛАД МАГИ\\n\\n" + "\\n".join(lines), kb([
+    await display(q.message, "😂 МЕМНЫЙ СКЛАД МАГИ\n\n" + "\n".join(lines), kb([
         [("➕ Добавить фото", "admin:media")],
         [("➕ Новый персонаж", "admin:newperson")],
         [("⬅️ Админка", "admin:panel")],
@@ -424,7 +440,7 @@ async def admin_new_person(q: CallbackQuery, state: FSMContext):
     if not is_meme_admin_id(q.from_user.id):
         return
     await state.set_state(AdminAuth.new_person)
-    await display(q.message, "➕ НОВЫЙ ГЕРОЙ, БРАТ\\n\\nОтправь имя (до 40 символов).", kb([
+    await display(q.message, "➕ НОВЫЙ ГЕРОЙ, БРАТ\n\nОтправь имя (до 40 символов).", kb([
         [("⬅️ Коллекции", "admin:collections")],
     ]))
 
@@ -457,7 +473,7 @@ async def admin_media_prompt(q: CallbackQuery, state: FSMContext):
     rows = [[(name, "admin:person:" + str(i))] for i, name in enumerate(names)]
     rows += [[("➕ Новый персонаж", "admin:newperson")],
              [("⬅️ Админка", "admin:panel")]]
-    await display(q.message, "📸 КОМУ ПОДКИНЕМ МЕМ, ВАЦОК?\\n\\nВыбери персонажа.", kb(rows))
+    await display(q.message, "📸 КОМУ ПОДКИНЕМ МЕМ, ВАЦОК?\n\nВыбери персонажа.", kb(rows))
 
 
 @dp.callback_query(F.data.startswith("admin:person:"))
@@ -472,7 +488,7 @@ async def admin_select_person(q: CallbackQuery, state: FSMContext):
         return
     await state.update_data(person=person)
     await state.set_state(AdminAuth.media)
-    await display(q.message, f"📸 Коллекция: {person}\\n\\nПришли фото или видео, на которое у тебя есть права. /start — отмена.", kb([
+    await display(q.message, f"📸 Коллекция: {person}\n\nПришли фото или видео, на которое у тебя есть права. /start — отмена.", kb([
         [("⬅️ Выбрать другого", "admin:media")],
     ]))
 
@@ -499,8 +515,8 @@ async def admin_media_upload(m: Message, state: FSMContext):
                 reaction_bank.import_media, path, person=person,
                 mood="auto", confirm_rights=True, credit=f"Authorized admin upload: {person}")
         await status.edit_text(
-            f"✅ {person}\\nНовых кадров: {result['added']}\\n"
-            f"Всего в медиатеке: {result['total']}\\nДубликатов: {result['duplicates']}",
+            f"✅ {person}\nНовых кадров: {result['added']}\n"
+            f"Всего в медиатеке: {result['total']}\nДубликатов: {result['duplicates']}",
             reply_markup=kb([
                 [("➕ Ещё фото", "admin:media")],
                 [("📁 Мемные сокровища", "admin:collections")],
@@ -518,10 +534,23 @@ async def admin_media_upload(m: Message, state: FSMContext):
 @dp.callback_query(F.data == "ui:mine")
 async def mine_menu(q: CallbackQuery):
     await q.answer()
-    await display(q.message, "⚙️ МОЁ, ВАЦОК\\n\\nТвои настройки и записи, брат. Всё по делу!", kb([
+    await display(q.message, "⚙️ НАСТРОЙКИ МАГИ\n\n"
+                  "Все твои параметры в одном месте, брат.", kb([
         [("🔔 Напоминания", "v2:settings")],
+        [("☑️ Мои правила", "check"), ("📊 Моя статистика", "v2:stats")],
+        [("😂 Мемный отдел", "v2:memethemes")],
+        [("🔐 Мои данные", "ui:privacy")],
+        [("🏠 На базу", "v2:home")],
+    ]))
+
+
+@dp.callback_query(F.data == "ui:privacy")
+async def privacy_menu(q: CallbackQuery):
+    await q.answer()
+    await display(q.message, "🔐 МОИ ДАННЫЕ\n\n"
+                  "Записи хранятся на сервере бота. Удаление необратимо.", kb([
         [("🗑 Удалить мои записи", "delete_ask")],
-        [("⬅️ На базу", "v2:home")],
+        [("⬅️ К настройкам", "ui:mine")],
     ]))
 
 
