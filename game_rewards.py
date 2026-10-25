@@ -53,7 +53,7 @@ def keyboard(rows):
 
 def parse_coordinates(text):
     """Accept decimal GPS pairs; for example 55.751244, 37.618423."""
-    parts = re.split(r"[,;\\s]+", (text or "").strip())
+    parts = re.split(r"[,;\s]+", (text or "").strip())
     if len(parts) != 2:
         raise ValueError("Two coordinates required")
     try:
@@ -109,12 +109,12 @@ def install(dp, *, is_admin, user_exists, render_text):
             + (" · ✅" if r["acknowledged_at"] else " · ⏳")
             for r in rows
         ]
-        text = ("🏴‍☠️ МАГА | НАГРАДЫ ИГРОКА\n\n"
+        text = ("🏴‍☠️ МАГА | КЛАДЫ ВАЦОКА\n\n"
                 f"Игрок: {uid}\n"
                 f"Выдано: {len(rows)}\n\n"
                 + ("\n".join(lines) if lines else "Пока пусто, брат."))
         await render_text(q.message, text, keyboard([
-            [("🎁 Выдать игровую награду", f"rw:grant:{uid}")],
+            [("🏴‍☠️ Закинуть клад, брат", f"rw:grant:{uid}")],
             [("⬅️ К игроку", f"admin:user:{uid}")],
         ]))
 
@@ -134,9 +134,9 @@ def install(dp, *, is_admin, user_exists, render_text):
         await state.set_state(RewardFlow.title)
         await state.update_data(reward_target=uid)
         await render_text(q.message,
-            "🎁 МАГА | ВЫДАЧА НАГРАДЫ\n\n"
-            "Напиши название игрового сокровища, вацок. До 80 символов.\n"
-            "Для отмены введи /cancelreward.",
+            "🏴‍☠️ МАГА | ВЫДАЧА КЛАДА\n\n"
+            "1/3 · Как назовём клад, вацок? До 80 символов.\n"
+            "Отбой — /cancelreward.",
             keyboard([[("⬅️ Назад к игроку", f"rw:admin:{uid}")]]))
 
     @dp.message(RewardFlow.title)
@@ -153,7 +153,7 @@ def install(dp, *, is_admin, user_exists, render_text):
             return
         await state.update_data(reward_title=name)
         await state.set_state(RewardFlow.optional_photo)
-        await m.answer("📸 Можешь отправить фотографию награды. "
+        await m.answer("📸 2/3 · Давай фотку клада, брат, жи есть! "
                        "Или напиши «без фото», брат.")
 
     @dp.message(RewardFlow.optional_photo)
@@ -168,19 +168,50 @@ def install(dp, *, is_admin, user_exists, render_text):
         if not skip and not m.photo:
             await m.answer("Отправь фото или напиши «без фото», вацок.")
             return
+        await state.update_data(reward_photo=m.photo[-1].file_id if m.photo else None)
+        await state.set_state(RewardFlow.location)
+        await m.answer(
+            "📍 3/3 · Давай корды, брат, жи есть!\n\n"
+            "Пришли геолокацию Telegram или два GPS-числа:\n"
+            "55.751244, 37.618423\n\n"
+            "Выбирай безопасное общественное место."
+        )
+
+    @dp.message(RewardFlow.location)
+    async def receive_location(m, state):
+        if not is_admin(m.from_user.id):
+            await state.clear()
+            return
+        if (m.text or "").strip() == "/cancelreward":
+            await state.clear()
+            return await m.answer("Отбой, брат. Выдачу отменили.")
+        try:
+            if m.location:
+                lat, lon = m.location.latitude, m.location.longitude
+            else:
+                lat, lon = parse_coordinates(m.text)
+        except ValueError:
+            return await m.answer(
+                "Не разобрал корды, вацок. Пришли геолокацию или "
+                "два числа: 55.751244, 37.618423"
+            )
         data = await state.get_data()
-        uid = data.get("reward_target")
-        title = data.get("reward_title")
-        await state.clear()
+        uid, title = data.get("reward_target"), data.get("reward_title")
+        photo_id = data.get("reward_photo")
         if not isinstance(uid, int) or not title or not user_exists(uid):
-            return await m.answer("Игрок не найден. Награда не выдана.")
-        photo_id = m.photo[-1].file_id if m.photo else None
-        rid = grant(uid, m.from_user.id, title, photo_id)
-        notice = (f"🏴‍☠️ ВАЦОК, ТЕБЕ НАГРАДА!\n\n"
-                  f"🎁 {title}\n\nМага передал. Забирай в игровую коллекцию!")
+            await state.clear()
+            return await m.answer("Вацок не найден, клад не выдавался.")
+        rid = grant(uid, m.from_user.id, title, photo_id, lat, lon)
+        await state.clear()
+        notice = (
+            "🏴‍☠️ МАГА | ТЕБЕ КЛАД, ВАЦОК!\n\n"
+            f"🎁 {title}\n\n"
+            "Мага закинул новую игровую точку, жи есть!\n"
+            "📍 Корды и фотка ждут в «Мои сокровища».\n"
+            "Жми «Окей» — уведомление уйдёт, клад останется."
+        )
         markup = keyboard([[("✅ Окей, брат, понял!", f"rw:ack:{rid}")]])
         try:
-            # Player gets one notification. No secret location is transmitted.
             sent = (await m.bot.send_photo(uid, photo_id, caption=notice,
                                            reply_markup=markup)
                     if photo_id else
@@ -188,11 +219,16 @@ def install(dp, *, is_admin, user_exists, render_text):
             with connect() as c:
                 c.execute("UPDATE rewards SET notice_message_id=? WHERE id=?",
                           (sent.message_id, rid))
-            await m.answer(f"✅ Награда #{rid} выдана! Игроку пришло уведомление.")
+            await m.answer(
+                f"✅ Жи есть! Клад #{rid} выдан игроку {uid}.\n"
+                "Уведомление ушло, корды сохранены."
+            )
         except Exception as exc:
             logger.warning("Cannot send game reward notification %s: %s", rid, exc)
-            await m.answer(f"⚠️ Награда #{rid} сохранена, но сообщение игроку "
-                           "не доставлено. Проверь, запускал ли он бота.")
+            await m.answer(
+                f"⚠️ Клад #{rid} сохранён, но уведомление не доставлено.\n"
+                "Проверь, запускал ли вацок бота."
+            )
 
     @dp.callback_query(F.data.startswith("rw:ack:"))
     async def acknowledge(q):
