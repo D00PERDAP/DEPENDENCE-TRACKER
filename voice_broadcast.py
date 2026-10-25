@@ -6,6 +6,8 @@ not guaranteed; colloquial word choice supplies Maga character.
 import asyncio
 import logging
 import os
+import sqlite3
+import sys
 import re
 import textwrap
 import shutil
@@ -21,6 +23,89 @@ MAX_CHARS = 700
 VOICE_NAME = "ru-RU-DmitryNeural"
 VOICE_RATE = "-8%"
 VOICE_PITCH = "-10Hz"
+
+
+VOICE_DB = Path(__file__).resolve().parent / "data" / "maga_voice_settings.sqlite3"
+VOICE_CHOICES = {
+    "edge": ("🎙 Дмитрий · обычный", None),
+    "gamat": ("🦅 Гамат · Silero", "ru_gamat"),
+    "eduard": ("🦅 Эдуард · Silero", "ru_eduard"),
+}
+
+
+def voice_db():
+    VOICE_DB.parent.mkdir(parents=True, exist_ok=True)
+    c = sqlite3.connect(VOICE_DB, timeout=15)
+    c.execute(
+        "CREATE TABLE IF NOT EXISTS profiles "
+        "(admin_id INTEGER PRIMARY KEY, voice TEXT NOT NULL)"
+    )
+    c.commit()
+    return c
+
+
+def get_voice(admin_id):
+    with voice_db() as c:
+        row = c.execute(
+            "SELECT voice FROM profiles WHERE admin_id=?", (admin_id,)
+        ).fetchone()
+    value = row[0] if row else "edge"
+    return value if value in VOICE_CHOICES else "edge"
+
+
+def set_voice(admin_id, choice):
+    if choice not in VOICE_CHOICES:
+        raise ValueError("Неизвестный голос Маги")
+    with voice_db() as c:
+        c.execute(
+            "INSERT INTO profiles(admin_id,voice) VALUES(?,?) "
+            "ON CONFLICT(admin_id) DO UPDATE SET voice=excluded.voice",
+            (admin_id, choice),
+        )
+
+
+async def synthesize_silero(text, output, choice):
+    """Invoke optional local worker; no third-party paid API involved."""
+    speaker = VOICE_CHOICES[choice][1]
+    if not speaker:
+        raise ValueError("Для этого варианта Silero не нужен")
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("На сервере не установлен ffmpeg")
+    source = output.parent / "silero_text.txt"
+    wav = output.parent / "silero.wav"
+    source.write_text(text, encoding="utf-8")
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, str(Path(__file__).with_name("silero_local_voice.py")),
+        str(source), str(wav), "--speaker", speaker,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        _, err = await asyncio.wait_for(proc.communicate(), timeout=180)
+    except asyncio.TimeoutError as exc:
+        proc.kill()
+        await proc.communicate()
+        raise RuntimeError(
+            "Silero не успел озвучить текст за 3 минуты. "
+            "Проверь память и загрузку VPS."
+        ) from exc
+    if proc.returncode or not wav.exists():
+        detail = err.decode("utf-8", "replace").splitlines()
+        reason = detail[-1][:160] if detail else "Неизвестная ошибка"
+        raise RuntimeError(
+            "Локальный голос Silero не запустился: " + reason
+            + ". Установи torch, torchaudio и omegaconf на VPS."
+        )
+    conv = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+        "-y", "-i", str(wav), "-vn", "-ac", "1",
+        "-c:a", "libopus", "-b:a", "32k", str(output),
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, err = await conv.communicate()
+    if conv.returncode or not output.exists() or not output.stat().st_size:
+        raise RuntimeError("Не получилось преобразовать Silero WAV в Telegram OGG.")
 
 
 class VoiceFlow(StatesGroup):
@@ -127,13 +212,47 @@ def install(dp, *, is_admin, connect, render_text, log):
             return await q.answer("Нет доступа", show_alert=True)
         await q.answer()
         await state.set_state(VoiceFlow.text)
+        current_voice = get_voice(q.from_user.id)
         await render_text(q.message,
             "🎙 МАГА | ГОЛОСОВОЙ САЛАМ\n\n"
             "Пиши текст, брат, — Мага озвучит его мужским голосом.\n"
             "Сначала лично послушаешь, потом решишь, пускать ли по вацокам.\n\n"
-            "До 700 символов. Для отмены — /cancelvoice.\n"
-            "Акцент зависит от движка: естественный кавказский не гарантируется.",
-            keyboard([[("⬅️ В штаб", "ac:voicecancel")]]))
+            f"До 700 символов. Голос: {VOICE_CHOICES[current_voice][0]}.\n"
+            "Silero — бесплатный локальный вариант, характер речи слушай в предпросмотре.",
+            keyboard([[("🎭 Выбрать голос", "ac:voicevoices")],
+                      [("⬅️ В штаб", "ac:voicecancel")]]))
+
+    @dp.callback_query(F.data == "ac:voicevoices")
+    async def voice_voices(q, state):
+        if not is_admin(q.from_user.id):
+            return await q.answer("Нет доступа", show_alert=True)
+        await q.answer()
+        current = get_voice(q.from_user.id)
+        buttons = [
+            [(("✅ " if current == key else "") + label, f"ac:setvoice:{key}")]
+            for key, (label, _) in VOICE_CHOICES.items()
+        ]
+        buttons.append([("⬅️ Назад к озвучке", "ac:voice")])
+        await render_text(
+            q.message,
+            "🎭 МАГА | ВЫБИРАЙ ГОЛОС, БРАТ\n\n"
+            "Дмитрий — прежний стабильный онлайн-голос.\n"
+            "Гамат и Эдуард — экспериментальные голоса локальной "
+            "бесплатной модели Silero. Акцент не гарантирован.\n"
+            "Для Silero потребуется дополнительная установка на VPS.",
+            keyboard(buttons),
+        )
+
+    @dp.callback_query(F.data.startswith("ac:setvoice:"))
+    async def set_voice_option(q, state):
+        if not is_admin(q.from_user.id):
+            return await q.answer("Нет доступа", show_alert=True)
+        choice = q.data.rsplit(":", 1)[-1]
+        if choice not in VOICE_CHOICES:
+            return await q.answer("Такого голоса нет, брат.", show_alert=True)
+        set_voice(q.from_user.id, choice)
+        await q.answer("Запомнил, вацок!")
+        await voice_menu(q, state)
 
     @dp.message(VoiceFlow.text)
     async def receive_text(m, state):
@@ -154,7 +273,11 @@ def install(dp, *, is_admin, connect, render_text, log):
             status = await m.answer("🎙 Мага записывает салам, брат…")
             with tempfile.TemporaryDirectory(prefix="maga_tts_") as work:
                 path = Path(work) / "maga.ogg"
-                await synthesize_voice(body, path)
+                selected_voice = get_voice(m.from_user.id)
+                if selected_voice == "edge":
+                    await synthesize_voice(body, path)
+                else:
+                    await synthesize_silero(body, path, selected_voice)
                 preview = await m.bot.send_voice(
                     m.chat.id, FSInputFile(path),
                     caption="🎙 МАГА | ПРОСЛУШКА\n\nЗацени, вацок. "
@@ -168,6 +291,7 @@ def install(dp, *, is_admin, connect, render_text, log):
             await state.update_data(
                 maga_voice_file_id=preview.voice.file_id,
                 maga_voice_text=body,
+                maga_voice_engine=selected_voice,
                 maga_voice_preview_id=preview.message_id,
             )
             await state.set_state(VoiceFlow.confirm)
