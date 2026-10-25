@@ -4,13 +4,15 @@ import ipaddress
 import socket
 import io
 import json
+import urllib.error
 import re
 import urllib.request
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urljoin, urlparse, quote, urlsplit, urlunsplit, urlencode
+from urllib.parse import urljoin, urlparse, quote, urlsplit, urlunsplit, urlencode, unquote
 from PIL import Image, ImageOps, UnidentifiedImageError
+from meme_review_store import read as read_review, transact as update_review
 
 ROOT = Path(__file__).resolve().parent
 REVIEW = ROOT / "data" / "meme_review"
@@ -39,29 +41,56 @@ SOURCES = [
     "https://memepedia.ru/ooaoaa-mmm/",
     "https://memepedia.ru/lovite-narkomana/",
     "https://reactor.cc/search/Наркотики+мемы",
+    "https://reactor.cc/search/мефедрон",
+    "https://reactor.cc/search/Паша+Техник",
+    "https://reactor.cc/search/солевые+мемы",
     "https://t.me/s/memsearch?before=7758",
-
 ]
 
 
-def fetch(url, limit):
-    parts = urlsplit(url)
-    url = urlunsplit((parts.scheme, parts.netloc, quote(parts.path, safe="/%:@"), quote(parts.query, safe="=&%:@+"), ""))
-    parsed = urlparse(url)
-    if parsed.scheme != "https" or not parsed.hostname:
-        raise ValueError("HTTPS URL required")
+def public_https(url):
+    """Reject local IPs, local DNS results and HTTP destinations before access."""
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("Public HTTPS URL required")
+    if parsed.port not in (None, 443):
+        raise ValueError("Nonstandard HTTPS port blocked")
     for record in socket.getaddrinfo(parsed.hostname, 443, type=socket.SOCK_STREAM):
         address = ipaddress.ip_address(record[4][0])
         if not address.is_global:
             raise ValueError("Non-public network target blocked")
-    req = urllib.request.Request(url, headers=HEADERS)
-    with urllib.request.urlopen(req, timeout=15) as response:
-        if response.geturl().split(":")[0] != "https":
-            raise ValueError("Redirected outside HTTPS")
+
+
+class SafeRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        public_https(newurl)
+        return super().redirect_request(request, fp, code, msg, headers, newurl)
+
+
+def fetch(url, limit):
+    parts = urlsplit(url)
+    url = urlunsplit((parts.scheme, parts.netloc, quote(parts.path, safe="/%:@"),
+                      quote(parts.query, safe="=&%:@+"), ""))
+    public_https(url)
+    request = urllib.request.Request(url, headers=HEADERS)
+    opener = urllib.request.build_opener(SafeRedirect())
+    with opener.open(request, timeout=15) as response:
+        public_https(response.geturl())
         data = response.read(limit + 1)
         if len(data) > limit:
             raise ValueError("Response too large")
         return data, response.headers.get_content_type(), response.headers.get_content_charset() or "utf-8"
+
+
+def topical_score(url, description="", source=""):
+    """Cheap transparent heuristic, NOT image recognition or humour judgement."""
+    hay = (unquote(urlsplit(url).path) + " " + description).lower()
+    strong = re.compile(r"паша.?техник|техник|меф|наркот|нарком|солев|альфа.?пвп|мдма|mdma|lsd|лсд|амфет|кокаин|каннаб|марихуан|гашиш|героин|кетамин|упорот|трезв|ломк", re.I)
+    score = 3 if strong.search(hay) else 1 if TOPIC.search(hay) else 0
+    if strong.search(unquote(urlsplit(source).path)) and score:
+        score += 1
+    return score
+
 
 
 class Images(HTMLParser):
@@ -69,7 +98,8 @@ class Images(HTMLParser):
         super().__init__()
         self.base = base
         self.urls = []
-    def add(self, value):
+        self.context = {}
+    def add(self, value, description=""):
         if not value:
             return
         url = urljoin(self.base, value.strip()).split("#")[0]
@@ -80,15 +110,16 @@ class Images(HTMLParser):
             return
         if url not in self.urls:
             self.urls.append(url)
+        self.context[url] = (self.context.get(url, "") + " " + description)[:500]
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         if tag == "meta" and a.get("property", "").lower() in ("og:image", "twitter:image"):
-            self.add(a.get("content"))
+            self.add(a.get("content"), a.get("alt", ""))
         if tag == "img":
             for name in ("data-original", "data-src", "src"):
-                self.add(a.get(name))
+                self.add(a.get(name), (a.get("alt", "") + " " + a.get("title", "")))
             if a.get("srcset"):
-                self.add(a["srcset"].split(",")[-1].strip().split(" ")[0])
+                self.add(a["srcset"].split(",")[-1].strip().split(" ")[0], a.get("alt", ""))
 
 
 def fingerprint(image):
