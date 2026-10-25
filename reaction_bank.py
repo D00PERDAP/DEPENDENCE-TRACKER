@@ -27,6 +27,7 @@ import sqlite3
 import subprocess
 import tempfile
 import threading
+from contextlib import contextmanager
 import urllib.request
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -93,6 +94,17 @@ def _db():
     c.execute("""CREATE TABLE IF NOT EXISTS vision_usage(
                  day TEXT PRIMARY KEY, requests INTEGER NOT NULL DEFAULT 0)""")
     return c
+
+
+@contextmanager
+def db_session():
+    """Always close reaction-bank connections in a long-running Telegram bot."""
+    c=_db()
+    try:
+        with c:
+            yield c
+    finally:
+        c.close()
 
 
 def _dhash(img):
@@ -360,7 +372,7 @@ def import_media(input_path, *, person="", mood="auto",
 
 
 def status():
-    with _db() as c:
+    with db_session() as c:
         total=c.execute("SELECT COUNT(*) FROM reactions").fetchone()[0]
         people={r[0]:r[1] for r in c.execute(
             "SELECT person,COUNT(*) FROM reactions GROUP BY person ORDER BY COUNT(*) DESC")}
@@ -378,7 +390,7 @@ def templates(risk, seen=None, limit=24, person=None, desired_mood=None):
     wanted=RISK_MOODS.get(risk,RISK_MOODS["general"])
     if desired_mood in MOODS and desired_mood != "neutral":
         wanted=(desired_mood,)+tuple(m for m in wanted if m != desired_mood)
-    with _db() as c:
+    with db_session() as c:
         rows=[dict(r) for r in c.execute(
             "SELECT id,file,person,mood,scenes,credit FROM reactions"
             +(" WHERE person=?" if person else ""),
@@ -409,7 +421,7 @@ def retag_frame(frame_id,new_mood):
         raise ValueError("Mood must be one of: "+", ".join(MOODS))
     if not re.fullmatch(r"[0-9a-f]{8,20}",frame_id):
         raise ValueError("Invalid frame ID")
-    with _db() as c:
+    with db_session() as c:
         result=c.execute("UPDATE reactions SET mood=?,tag_method='manual',confidence=1"
                           " WHERE id LIKE ?",(new_mood,frame_id+"%"))
         if result.rowcount!=1:
@@ -422,7 +434,7 @@ def auto_retag(max_frames=None):
     if os.getenv("REACTION_VISION_ENABLED","0")!="1":
         return {"tagged":0,"warning":"Set REACTION_VISION_ENABLED=1 with an API key"}
     tagged=0
-    with _db() as c:
+    with db_session() as c:
         rows=list(c.execute("SELECT id,file FROM reactions"
                             " WHERE tag_method!='manual' AND tag_method!='vision'"
                             " ORDER BY created_at"))
