@@ -75,12 +75,14 @@ class StoryLinks(HTMLParser):
         super().__init__()
         self.links = []
         self.current = None
+        self.matches = 0
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
         href = attrs.get("href", "")
         if tag == "a" and re.search(r"^(?:https://pikabu\\.ru)?/story/[\\w%-]+_\\d+(?:[/?#]|$)", href):
-            self.current = [urljoin("https://pikabu.ru", href), ""]
+            self.current = [urljoin("https://pikabu.ru", href).split("?")[0].split("#")[0], ""]
+            self.matches += 1
 
     def handle_data(self, data):
         if self.current is not None:
@@ -98,6 +100,7 @@ def community_links(url):
         html = response.read(2_000_000).decode("utf-8", errors="replace")
     parser = StoryLinks()
     parser.feed(html)
+    print(f"Community {url}: matched anchors={parser.matches}, extracted={len(parser.links)}")
     return parser.links
 
 
@@ -124,9 +127,11 @@ def scan():
             print("Feed unavailable:", type(exc).__name__, line[:90])
     for category, url in COMMUNITIES:
         try:
-            for link, title in community_links(url):
-                if KEYWORDS.search(title) and title.strip():
-                    sources.append((category, title.strip(), link))
+            links = community_links(url)
+            relevant = [(link, title.strip()) for link, title in links if title.strip() and KEYWORDS.search(title)]
+            print(f"  Relevant titles: {len(relevant)}; sample titles: {[title[:65] for _, title in links[:3]]}")
+            for link, title in relevant:
+                sources.append((category, title, link))
         except (OSError, ValueError) as exc:
             print("Community unavailable:", type(exc).__name__, url)
     added = 0
