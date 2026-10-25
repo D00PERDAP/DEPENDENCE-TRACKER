@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parent
 DB = ROOT / "data" / "pirate_quests.sqlite3"
 # Temporary game messages are tracked per user for chat cleanup.
 GAME_MESSAGES = {}
+GAME_TIMERS = {}
 
 class QuestForm(StatesGroup):
     password = State()
@@ -71,11 +72,14 @@ def install(dp):
     async def enter(m: Message,state:FSMContext):
         if m.chat.type!="private": return
         await state.clear()
+        GAME_MESSAGES.pop(m.from_user.id, None)
+        await track(m.from_user.id, m)
         await state.set_state(QuestForm.password)
         await track(m.from_user.id, await m.answer("🏴‍☠️ Тайная гавань\\n\\nВведи своё кодовое слово. При первом входе оно будет создано."))
 
     @dp.message(QuestForm.password)
     async def password(m:Message,state:FSMContext):
+        await track(m.from_user.id, m)
         word=(m.text or "").strip()
         if not 6<=len(word)<=100:
             return await m.answer("Кодовое слово должно содержать от 6 до 100 символов.")
@@ -120,6 +124,7 @@ def install(dp):
 
     @dp.message(QuestForm.title)
     async def title(m:Message,state:FSMContext):
+        await track(m.from_user.id, m)
         title=(m.text or "").strip()
         if not 1<=len(title)<=60:return await m.answer("Название — от 1 до 60 символов.")
         await state.update_data(title=title)
@@ -128,6 +133,7 @@ def install(dp):
 
     @dp.message(QuestForm.photo)
     async def photo(m:Message,state:FSMContext):
+        await track(m.from_user.id, m)
         if not m.photo:return await m.answer("Нужна фотография.")
         await state.update_data(photo_id=m.photo[-1].file_id)
         await state.set_state(QuestForm.location)
@@ -135,6 +141,7 @@ def install(dp):
 
     @dp.message(QuestForm.location)
     async def location(m:Message,state:FSMContext):
+        await track(m.from_user.id, m)
         if m.location:
             lat,lon=m.location.latitude,m.location.longitude
         else:
@@ -175,6 +182,11 @@ def install(dp):
         uid=q.from_user.id
         await state.clear()
         async def expire():
-            await asyncio.sleep(60)
-            await clear_game(q.bot, uid)
-        asyncio.create_task(expire())
+            try:
+                await asyncio.sleep(60)
+                await clear_game(q.bot, uid)
+            finally:
+                GAME_TIMERS.pop(uid, None)
+        old = GAME_TIMERS.pop(uid, None)
+        if old: old.cancel()
+        GAME_TIMERS[uid] = asyncio.create_task(expire())
