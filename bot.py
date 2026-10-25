@@ -530,32 +530,20 @@ async def home(message, uid):
         session = active(c, uid)
         ensure_preset(c, uid)
         count = len(picked(c, uid))
-    running = bool(session)
-    markup = home_buttons(running, is_meme_admin_id(uid))
-    status = "🔴 Сопровождение активно" if running else "🟢 Сопровождение выключено"
-    text = (
-        "🦅 МАГА НА СВЯЗИ\\n\\n"
-        "Салам, брат. Всё по делу, без суеты.\\n\\n"
-        f"{status}\\n☑️ Личных правил: {count}\\n\\n"
-        "Если стало плохо — сразу открывай помощь."
+    markup = home_buttons(bool(session), is_meme_admin_id(uid))
+    status = "🔴 Сопровождение активно" if session else "🟢 Сопровождение выключено"
+    caption = (
+        "🦅 Мага на связи, брат!\n\n"
+        f"{status}\n"
+        f"☑️ Моих правил: {count}\n\n"
+        "Выбирай, что нужно 👇"
     )
-    # Rich Messages: native structured Telegram content, not a web app.
-    # Disabled with MAGA_RICH_UI=0 if a client fails to render correctly.
-    if os.getenv("MAGA_RICH_UI", "1").strip() == "1":
-        rich = (
-            "## 🦅 МАГА НА СВЯЗИ\\n\\n"
-            "*ЛИЧНОЕ ДЕЛО · ГЛАВНАЯ*\\n\\n"
-            "Салам, брат. Всё по делу, без суеты.\\n\\n"
-            f"**{status}**\\n\\n"
-            f"☑️ Личных правил: **{count}**\\n\\n"
-            "---\\n"
-            "Если стало плохо — сразу открывай помощь."
-        )
-        return await ui_manager.render_rich(message, rich, text, markup)
-    intro = Path(__file__).resolve().parent / "assets" / "maga_menu_photo.jpg"
-    if intro.is_file():
-        return await ui_manager.render_photo(message, intro, text, markup)
-    return await display(message, text, markup)
+    # Prioritize the user's actual Maga photo over experimental Rich Messages.
+    # Keep the image server-local and never require committing private assets.
+    photo = Path(__file__).resolve().parent / "assets" / "maga_menu_photo.jpg"
+    if photo.is_file():
+        return await ui_manager.render_photo(message, photo, caption, markup)
+    return await display(message, caption, markup)
 
 
 def meme_key(path):
