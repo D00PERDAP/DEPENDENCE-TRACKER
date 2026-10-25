@@ -11,6 +11,7 @@ import hashlib
 import json
 import shutil
 import re
+import gzip
 from html.parser import HTMLParser
 from urllib.parse import urljoin
 import urllib.request
@@ -97,11 +98,19 @@ class StoryLinks(HTMLParser):
 def community_links(url):
     req = urllib.request.Request(url, headers=HEADERS)
     with urllib.request.urlopen(req, timeout=20) as response:
-        html = response.read(2_000_000).decode("utf-8", errors="replace")
+        raw = response.read(2_000_000)
+        encoding = response.headers.get("Content-Encoding", "").lower()
+        if encoding == "gzip":
+            raw = gzip.decompress(raw)
+        charset = response.headers.get_content_charset()
+    if not charset:
+        match = re.search(rb"<meta[^>]+charset=[\'\"]?([a-zA-Z0-9_-]+)", raw[:10000], re.I)
+        charset = match.group(1).decode("ascii") if match else "utf-8"
+    html = raw.decode(charset, errors="replace")
     parser = StoryLinks()
     parser.feed(html)
     print(f"Community {url}: matched anchors={parser.matches}, extracted={len(parser.links)}")
-    return parser.links
+    return [(link, re.sub(r"\\s+", " ", title).strip()) for link, title in parser.links]
 
 
 def scan():
