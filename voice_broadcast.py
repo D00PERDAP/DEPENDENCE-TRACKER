@@ -6,6 +6,8 @@ not guaranteed; colloquial word choice supplies Maga character.
 import asyncio
 import logging
 import os
+import re
+import textwrap
 import shutil
 import tempfile
 from pathlib import Path
@@ -33,8 +35,30 @@ def keyboard(rows):
     ])
 
 
+def split_voice_text(text, limit=135):
+    """Preserve the complete text; break at sentences where possible."""
+    if limit < 20:
+        raise ValueError("Voice chunk limit must be at least 20")
+    sentences = re.split(r"(?<=[.!?…])\s+|\n+", text.strip())
+    pieces = []
+    for sentence in sentences:
+        if not sentence.strip():
+            continue
+        pieces.extend(textwrap.wrap(
+            sentence.strip(), width=limit, break_long_words=True,
+            break_on_hyphens=False
+        ))
+    chunks = []
+    for piece in pieces:
+        if chunks and len(chunks[-1]) + len(piece) + 1 <= limit:
+            chunks[-1] += " " + piece
+        else:
+            chunks.append(piece)
+    return chunks
+
+
 async def synthesize_voice(text, output):
-    """Generate a Telegram voice note (OGG/Opus)."""
+    """Render short TTS requests and combine as one Telegram OGG/Opus note."""
     if not shutil.which("ffmpeg"):
         raise RuntimeError("На сервере не установлен ffmpeg.")
     try:
@@ -42,32 +66,58 @@ async def synthesize_voice(text, output):
     except ImportError as exc:
         raise RuntimeError("Не установлен edge-tts. Обнови зависимости.") from exc
 
-    mp3 = output.with_suffix(".mp3")
-    try:
-        await asyncio.wait_for(
-            edge_tts.Communicate(
-                text, voice=VOICE_NAME, rate=VOICE_RATE, pitch=VOICE_PITCH
-            ).save(str(mp3)), timeout=45,
-        )
-    except asyncio.TimeoutError as exc:
-        raise RuntimeError("Сервис синтеза речи не ответил за 45 секунд.") from exc
-    except Exception as exc:
-        raise RuntimeError(
-            f"Сервис синтеза не ответил ({type(exc).__name__}). "
-            "Проверь сеть VPS и версию edge-tts."
-        ) from exc
-    if not mp3.exists() or mp3.stat().st_size == 0:
-        raise RuntimeError("Синтез речи вернул пустой аудиофайл.")
+    chunks = split_voice_text(text)
+    if not chunks:
+        raise RuntimeError("Текст для озвучивания пустой.")
+
+    # File paths are controlled by us (not by message content).
+    manifest = output.parent / "maga_segments.txt"
+    paths = []
+    for index, part in enumerate(chunks, start=1):
+        mp3 = output.parent / f"maga_part_{index:02d}.mp3"
+        for attempt in range(3):
+            try:
+                await asyncio.wait_for(
+                    edge_tts.Communicate(
+                        part, voice=VOICE_NAME, rate=VOICE_RATE,
+                        pitch=VOICE_PITCH
+                    ).save(str(mp3)),
+                    timeout=35,
+                )
+                if not mp3.exists() or mp3.stat().st_size == 0:
+                    raise RuntimeError("Получен пустой аудиофайл.")
+                break
+            except (Exception, asyncio.TimeoutError) as exc:
+                if attempt == 2:
+                    raise RuntimeError(
+                        f"Не удалось озвучить часть {index} из {len(chunks)} "
+                        f"({type(exc).__name__}). Попробуй ещё раз."
+                    ) from exc
+                logger.warning(
+                    "Maga voice chunk %s/%s attempt %s failed: %s",
+                    index, len(chunks), attempt + 1, type(exc).__name__
+                )
+                await asyncio.sleep(1.5 * (attempt + 1))
+        paths.append(mp3)
+
+    # Concatenate source files before transcoding, avoiding a separate voice
+    # note per sentence. One output means one Telegram preview and one send.
+    manifest.write_text(
+        "".join(f"file '{path.name}'\n" for path in paths),
+        encoding="utf-8",
+    )
     proc = await asyncio.create_subprocess_exec(
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
-        "-y", "-i", str(mp3), "-vn", "-ac", "1",
+        "-y", "-f", "concat", "-safe", "1",
+        "-i", str(manifest), "-vn", "-ac", "1",
         "-c:a", "libopus", "-b:a", "32k", str(output),
-        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
     )
     _, err = await proc.communicate()
     if proc.returncode != 0 or not output.is_file() or not output.stat().st_size:
         logger.warning("Voice transcoding failed: %s", err[:300] if err else proc.returncode)
-        raise RuntimeError("ffmpeg не смог преобразовать аудио в OGG/Opus.")
+        raise RuntimeError("ffmpeg не смог собрать голосовое в OGG/Opus.")
 
 
 def install(dp, *, is_admin, connect, render_text, log):
