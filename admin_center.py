@@ -73,7 +73,7 @@ def install(dp, connect, is_admin, pirate):
         with pirate.db() as c:
             treasures=c.execute("SELECT COUNT(*) FROM treasures").fetchone()[0]
             banned=c.execute("SELECT COUNT(*) FROM banned_players").fetchone()[0]
-        await show(q, f"📊 ОБЩАЯ АНАЛИТИКА\nПользователей: {users}\nАктивных за 7 дней (по last_seen): {active}\nСессий всего: {sessions}\nОтправок мемов: {meme_count}\nСокровищ: {treasures}\nБлокировок гавани: {banned}\n\nБез личных записей.", [[("⬅️ Обратно, брат","ac:menu")]])
+        await show(q, f"📊 РАСКЛАДЫ ПО БОТУ\nПользователей: {users}\nАктивных за 7 дней (по last_seen): {active}\nСессий всего: {sessions}\nОтправок мемов: {meme_count}\nСокровищ: {treasures}\nБлокировок гавани: {banned}\n\nБез личных записей.", [[("⬅️ Обратно, брат","ac:menu")]])
 
     @dp.callback_query(F.data.startswith("ac:treasures:"))
     async def treasures(q):
@@ -91,8 +91,8 @@ def install(dp, connect, is_admin, pirate):
         if page: nav.append(("⬅️",f"ac:treasures:{page-1}"))
         if (page+1)*8<total: nav.append(("➡️",f"ac:treasures:{page+1}"))
         if nav: buttons.append(nav)
-        buttons.append([("🛠 Меню","ac:menu")])
-        await show(q,f"🏴‍☠️ СОКРОВИЩА: {total}\nСкрытые отмечены 🚫",buttons)
+        buttons.append([("🛠 Штаб Маги","ac:menu")])
+        await show(q,f"🏴‍☠️ ЛИЧНЫЕ ТОЧКИ: {total}\nСкрытые отмечены 🚫",buttons)
 
     @dp.callback_query(F.data.startswith("ac:treasure:"))
     async def treasure(q):
@@ -133,7 +133,7 @@ def install(dp, connect, is_admin, pirate):
             disabled={r[0] for r in c.execute("SELECT name FROM disabled_meme_characters")}
         rows=[[(("🔴 " if name in disabled else "🟢 ")+name[:35],f"ac:meme:{i}")] for i,name in enumerate(names)]
         rows += [[("📁 Все коллекции","admin:collections")],[("⬅️ Обратно, брат","ac:menu")]]
-        await show(q,"🎭 МЕМЫ\nПерсонажи из каталога. Список отключений для модерации (пока не влияет на выдачу мемов).",rows)
+        await show(q,"😂 МЕМНЫЙ ШТАБ\nПерсонажи из каталога. Список отключений для модерации (пока не влияет на выдачу мемов).",rows)
 
     @dp.callback_query(F.data.startswith("ac:meme:"))
     async def meme_toggle(q):
@@ -156,14 +156,14 @@ def install(dp, connect, is_admin, pirate):
         await q.answer()
         with db() as c: rows=c.execute("SELECT at,actor,action,target FROM audit ORDER BY id DESC LIMIT 12").fetchall()
         lines=[f"{r['at'][:16]} · {r['actor']} · {r['action']} · {r['target']}" for r in rows]
-        await show(q,"🛡 ЖУРНАЛ\n"+"\n".join(lines or ["Пока пусто"]),[[("⬅️ Обратно, брат","ac:menu")]])
+        await show(q,"🛡 КТО ЧТО ДЕЛАЛ\n"+"\n".join(lines or ["Пока пусто"]),[[("⬅️ Обратно, брат","ac:menu")]])
 
     @dp.callback_query(F.data == "ac:broadcast")
     async def broadcast(q,state):
         if not allowed(q.from_user.id): return await q.answer("Нет доступа",show_alert=True)
         await q.answer()
         await state.set_state(AdminFlow.broadcast)
-        await show(q,"📢 РАССЫЛКА\nОтправь текст объявления (до 1000 символов). Сначала будет предпросмотр.",[[("⬅️ Обратно, брат","ac:menu")]])
+        await show(q,"📢 ПЕРЕДАЁМ САЛАМ\nОтправь текст объявления (до 1000 символов). Сначала будет предпросмотр.",[[("⬅️ Обратно, брат","ac:menu")]])
 
     @dp.message(AdminFlow.broadcast)
     async def broadcast_text(m,state):
@@ -206,8 +206,8 @@ def install(dp, connect, is_admin, pirate):
         await q.answer()
         with db() as c: rows=c.execute("SELECT id,title,active FROM events ORDER BY id DESC LIMIT 12").fetchall()
         buttons=[[(("🟢 " if r["active"] else "⚪ ")+r["title"][:35],f"ac:event:{r['id']}")] for r in rows]
-        buttons += [[("➕ Создать событие","ac:eventnew")],[("⬅️ Обратно, брат","ac:menu")]]
-        await show(q,"🎮 ИГРОВЫЕ СОБЫТИЯ\nПубликуются через отдельную кнопку в меню.",buttons)
+        buttons += [[("➕ Новое событие","ac:eventnew")],[("⬅️ Обратно, брат","ac:menu")]]
+        await show(q,"🎮 СОБЫТИЯ\nПубликуются через отдельную кнопку в меню.",buttons)
 
     @dp.callback_query(F.data == "ac:eventnew")
     async def eventnew(q,state):
