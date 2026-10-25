@@ -28,6 +28,7 @@ import joke_catalog
 import v2_data
 import v2_experience
 import ui_manager
+import game_rewards
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
@@ -292,6 +293,7 @@ async def admin_user_detail(q: CallbackQuery):
     name = user["first_name"] or user["username"] or "Пользователь"
     await display(q.message, f"👤 {name}\nID: {uid}\nДоступ: {'🚫 заблокирован' if banned else '✅ открыт'}\nСокровищ: {count}\n\n{titles}", kb([
         [(("✅ Разблокировать" if banned else "🚫 Заблокировать"), f"admin:ban_user:{uid}")],
+        [("🎁 Игровые награды", f"rw:admin:{uid}")],
         [("🔑 Сбросить пароль гавани", f"admin:pirate_pick:{uid}")],
         [("⬅️ Пользователи", "admin:users:0")],
     ]))
@@ -541,6 +543,7 @@ async def mine_menu(q: CallbackQuery):
             [("🔔 Напоминалки", "v2:settings")],
             [("☑️ Моё слово", "check"), ("📊 Мой расклад", "v2:stats")],
             [("😂 Мемный движ", "v2:memethemes")],
+            [("🎁 Мои сокровища", "rw:mine")],
             [("🔐 Личное дело", "ui:privacy")],
             [("🏠 На базу, брат", "v2:home")],
         ]))
@@ -1452,8 +1455,20 @@ async def originals_loop():
         await asyncio.sleep(6 * 3600)
 
 
+def connect_user_exists(uid):
+    with connect() as c:
+        return c.execute(
+            "SELECT 1 FROM bot_user_profiles WHERE user_id=?", (uid,)
+        ).fetchone() is not None
+
+
 pirate_quests.install(dp)
 admin_center.install(dp, connect, is_meme_admin_id, pirate_quests)
+game_rewards.install(
+    dp, is_admin=is_meme_admin_id,
+    user_exists=lambda uid: connect_user_exists(uid),
+    render_text=ui_manager.render_text,
+)
 
 v2_experience.install(
     dp, connect=connect, active=active, picked=picked, ensure_preset=ensure_preset,
