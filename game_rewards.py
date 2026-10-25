@@ -113,10 +113,36 @@ def install(dp, *, is_admin, user_exists, render_text):
                 f"Игрок: {uid}\n"
                 f"Выдано: {len(rows)}\n\n"
                 + ("\n".join(lines) if lines else "Пока пусто, брат."))
-        await render_text(q.message, text, keyboard([
+        choices = [[(f"🗺️ #{r['id']} · {r['title'][:30]}", f"rw:adminview:{r['id']}")]
+                   for r in rows]
+        choices += [
             [("🏴‍☠️ Закинуть клад, брат", f"rw:grant:{uid}")],
             [("⬅️ К игроку", f"admin:user:{uid}")],
-        ]))
+        ]
+        await render_text(q.message, text, keyboard(choices))
+
+    @dp.callback_query(F.data.startswith("rw:adminview:"))
+    async def admin_view(q):
+        if not is_admin(q.from_user.id):
+            return await q.answer("Нет доступа", show_alert=True)
+        rid = int(q.data.rsplit(":", 1)[-1])
+        with connect() as c:
+            item = c.execute("SELECT * FROM rewards WHERE id=?", (rid,)).fetchone()
+        if not item:
+            return await q.answer("Клад не найден, брат.", show_alert=True)
+        await q.answer()
+        coords = (f"{item['latitude']:.7f}, {item['longitude']:.7f}"
+                  if item["latitude"] is not None else "не указаны")
+        await render_text(
+            q.message,
+            f"🏴‍☠️ МАГА | КЛАД #{rid}\n\n"
+            f"👤 Игрок: {item['user_id']}\n"
+            f"🎁 {item['title']}\n"
+            f"📍 Корды, брат: {coords}\n"
+            f"📸 Фотка: {'есть' if item['photo_id'] else 'нет'}\n"
+            f"✅ Подтверждено: {'да' if item['acknowledged_at'] else 'ещё нет'}",
+            keyboard([[("⬅️ К кладам игрока", f"rw:admin:{item['user_id']}")]]),
+        )
 
     @dp.callback_query(F.data.startswith("rw:admin:"))
     async def admin_inventory(q):
