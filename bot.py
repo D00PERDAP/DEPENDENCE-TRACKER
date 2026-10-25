@@ -577,6 +577,25 @@ async def meme_update_loop():
         await asyncio.sleep(24 * 3600)
 
 
+async def originals_loop():
+    """Maintain original image library and optionally create edited AI jokes."""
+    try:
+        await asyncio.to_thread(ensure_catalog)
+        from meme_ai import restore, generate_daily
+        await asyncio.to_thread(restore)
+    except Exception as exc:
+        print(f"Original meme restore error: {type(exc).__name__}: {exc}")
+    while True:
+        try:
+            from meme_ai import generate_daily
+            added = await asyncio.to_thread(generate_daily)
+            if added:
+                print(f"AI original memes added: {added}")
+        except Exception as exc:
+            print(f"Optional AI meme writing error: {type(exc).__name__}: {exc}")
+        await asyncio.sleep(6 * 3600)
+
+
 async def main():
     if not TOKEN or TOKEN == "put_your_token_here":
         raise RuntimeError("Set BOT_TOKEN in .env")
@@ -588,7 +607,7 @@ async def main():
     bot = Bot(TOKEN)
     task = asyncio.create_task(reminder_loop(bot))
     discovery_task = asyncio.create_task(meme_update_loop())
-    originals_task = asyncio.create_task(asyncio.to_thread(ensure_catalog))
+    originals_task = asyncio.create_task(originals_loop())
     try:
         await dp.start_polling(bot)
     finally:
