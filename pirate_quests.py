@@ -16,6 +16,7 @@ DB = ROOT / "data" / "pirate_quests.sqlite3"
 # Temporary game messages are tracked per user for chat cleanup.
 GAME_MESSAGES = {}
 GAME_TIMERS = {}
+GAME_SCREEN = {}
 
 class QuestForm(StatesGroup):
     password = State()
@@ -54,6 +55,7 @@ async def track(uid, message):
 
 async def clear_game(bot, uid):
     messages = GAME_MESSAGES.pop(uid, [])
+    GAME_SCREEN.pop(uid, None)
     for chat_id, message_id in reversed(messages):
         try:
             await bot.delete_message(chat_id, message_id)
@@ -65,17 +67,29 @@ async def harbor(m, uid):
         rows=c.execute("SELECT id,title FROM treasures WHERE user_id=? ORDER BY id DESC LIMIT 30",(uid,)).fetchall()
     opts=[[(f"🗺️ {r['title'][:40]}",f"pq:view:{r['id']}")] for r in rows]
     opts += [[("➕ Создать сокровище","pq:new")],[("🚪 Закрыть гавань","pq:exit")]]
-    await track(uid, await m.answer("🏴‍☠️ ТАЙНАЯ ГАВАНЬ\n\nВыбери своё сокровище:",reply_markup=buttons(opts)))
+    content = "🏴‍☠️ ТАЙНАЯ ГАВАНЬ\\n\\nВыбери своё сокровище:"
+    screen = GAME_SCREEN.get(uid)
+    if screen:
+        try:
+            await m.bot.edit_message_text(content, chat_id=screen[0], message_id=screen[1], reply_markup=buttons(opts))
+            return
+        except Exception:
+            pass
+    sent = await track(uid, await m.answer(content, reply_markup=buttons(opts)))
+    GAME_SCREEN[uid] = (sent.chat.id, sent.message_id)
 
 def install(dp):
     @dp.message(F.text.regexp(r"(?i)^клады$"))
     async def enter(m: Message,state:FSMContext):
         if m.chat.type!="private": return
         await state.clear()
-        GAME_MESSAGES.pop(m.from_user.id, None)
+        await clear_game(m.bot, m.from_user.id)
         await track(m.from_user.id, m)
+        try: await m.delete()
+        except Exception: pass
         await state.set_state(QuestForm.password)
-        await track(m.from_user.id, await m.answer("🏴‍☠️ Тайная гавань\\n\\nВведи своё кодовое слово. При первом входе оно будет создано."))
+        prompt = await track(m.from_user.id, await m.answer("🏴‍☠️ Тайная гавань\\n\\nВведи своё кодовое слово. При первом входе оно будет создано."))
+        GAME_SCREEN[m.from_user.id] = (prompt.chat.id, prompt.message_id)
 
     @dp.message(QuestForm.password)
     async def password(m:Message,state:FSMContext):
