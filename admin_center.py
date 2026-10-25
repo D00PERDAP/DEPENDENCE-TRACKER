@@ -54,11 +54,11 @@ def install(dp, connect, is_admin, pirate):
     async def menu(q):
         if not allowed(q.from_user.id): return await q.answer("Нет доступа", show_alert=True)
         await q.answer()
-        await show(q, "🛠 ЦЕНТР УПРАВЛЕНИЯ\nВыбери раздел.", [
-            [("👥 Пользователи", "admin:users:0"),("🏴‍☠️ Гавани", "ac:treasures:0")],
-            [("📢 Рассылки", "ac:broadcast"),("📊 Аналитика", "ac:stats")],
-            [("🎭 Мемы", "ac:memes"),("🛡 Журнал", "ac:audit")],
-            [("🎮 События", "ac:events"),("⬅️ Админка", "admin:panel")]
+        await show(q, "🛠 ШТАБ МАГИ\nВыбирай раздел, вацок.", [
+            [("👥 Наши вацоки", "admin:users:0"),("🏴‍☠️ Тайные точки", "ac:treasures:0")],
+            [("📢 Передать салам", "ac:broadcast"),("📊 Все расклады", "ac:stats")],
+            [("😂 Мемный штаб", "ac:memes"),("🛡 Кто что натворил", "ac:audit")],
+            [("🎮 События", "ac:events"),("⬅️ Штаб", "admin:panel")]
         ])
 
     @dp.callback_query(F.data == "ac:stats")
@@ -73,7 +73,7 @@ def install(dp, connect, is_admin, pirate):
         with pirate.db() as c:
             treasures=c.execute("SELECT COUNT(*) FROM treasures").fetchone()[0]
             banned=c.execute("SELECT COUNT(*) FROM banned_players").fetchone()[0]
-        await show(q, f"📊 ОБЩАЯ АНАЛИТИКА\nПользователей: {users}\nАктивных за 7 дней (по last_seen): {active}\nСессий всего: {sessions}\nОтправок мемов: {meme_count}\nСокровищ: {treasures}\nБлокировок гавани: {banned}\n\nБез личных записей.", [[("⬅️ Назад","ac:menu")]])
+        await show(q, f"📊 ОБЩАЯ АНАЛИТИКА\nПользователей: {users}\nАктивных за 7 дней (по last_seen): {active}\nСессий всего: {sessions}\nОтправок мемов: {meme_count}\nСокровищ: {treasures}\nБлокировок гавани: {banned}\n\nБез личных записей.", [[("⬅️ Обратно, брат","ac:menu")]])
 
     @dp.callback_query(F.data.startswith("ac:treasures:"))
     async def treasures(q):
@@ -132,7 +132,7 @@ def install(dp, connect, is_admin, pirate):
         with db() as c:
             disabled={r[0] for r in c.execute("SELECT name FROM disabled_meme_characters")}
         rows=[[(("🔴 " if name in disabled else "🟢 ")+name[:35],f"ac:meme:{i}")] for i,name in enumerate(names)]
-        rows += [[("📁 Все коллекции","admin:collections")],[("⬅️ Назад","ac:menu")]]
+        rows += [[("📁 Все коллекции","admin:collections")],[("⬅️ Обратно, брат","ac:menu")]]
         await show(q,"🎭 МЕМЫ\nПерсонажи из каталога. Список отключений для модерации (пока не влияет на выдачу мемов).",rows)
 
     @dp.callback_query(F.data.startswith("ac:meme:"))
@@ -156,14 +156,14 @@ def install(dp, connect, is_admin, pirate):
         await q.answer()
         with db() as c: rows=c.execute("SELECT at,actor,action,target FROM audit ORDER BY id DESC LIMIT 12").fetchall()
         lines=[f"{r['at'][:16]} · {r['actor']} · {r['action']} · {r['target']}" for r in rows]
-        await show(q,"🛡 ЖУРНАЛ\n"+"\n".join(lines or ["Пока пусто"]),[[("⬅️ Назад","ac:menu")]])
+        await show(q,"🛡 ЖУРНАЛ\n"+"\n".join(lines or ["Пока пусто"]),[[("⬅️ Обратно, брат","ac:menu")]])
 
     @dp.callback_query(F.data == "ac:broadcast")
     async def broadcast(q,state):
         if not allowed(q.from_user.id): return await q.answer("Нет доступа",show_alert=True)
         await q.answer()
         await state.set_state(AdminFlow.broadcast)
-        await show(q,"📢 РАССЫЛКА\nОтправь текст объявления (до 1000 символов). Сначала будет предпросмотр.",[[("⬅️ Назад","ac:menu")]])
+        await show(q,"📢 РАССЫЛКА\nОтправь текст объявления (до 1000 символов). Сначала будет предпросмотр.",[[("⬅️ Обратно, брат","ac:menu")]])
 
     @dp.message(AdminFlow.broadcast)
     async def broadcast_text(m,state):
@@ -198,7 +198,7 @@ def install(dp, connect, is_admin, pirate):
             await asyncio.sleep(0.06)
         with db() as c: c.execute("UPDATE announcements SET sent=?,failed=? WHERE id=?",(sent,failed,announcement_id))
         log(q.from_user.id,"broadcast",f"{announcement_id}: {sent}/{failed}")
-        await show(q,f"📢 Рассылка завершена\nДоставлено: {sent}\nОшибок: {failed}",[[("⬅️ Назад","ac:menu")]])
+        await show(q,f"📢 Рассылка завершена\nДоставлено: {sent}\nОшибок: {failed}",[[("⬅️ Обратно, брат","ac:menu")]])
 
     @dp.callback_query(F.data == "ac:events")
     async def events(q):
@@ -206,7 +206,7 @@ def install(dp, connect, is_admin, pirate):
         await q.answer()
         with db() as c: rows=c.execute("SELECT id,title,active FROM events ORDER BY id DESC LIMIT 12").fetchall()
         buttons=[[(("🟢 " if r["active"] else "⚪ ")+r["title"][:35],f"ac:event:{r['id']}")] for r in rows]
-        buttons += [[("➕ Создать событие","ac:eventnew")],[("⬅️ Назад","ac:menu")]]
+        buttons += [[("➕ Создать событие","ac:eventnew")],[("⬅️ Обратно, брат","ac:menu")]]
         await show(q,"🎮 ИГРОВЫЕ СОБЫТИЯ\nПубликуются через отдельную кнопку в меню.",buttons)
 
     @dp.callback_query(F.data == "ac:eventnew")
@@ -214,7 +214,7 @@ def install(dp, connect, is_admin, pirate):
         if not allowed(q.from_user.id): return await q.answer("Нет доступа",show_alert=True)
         await q.answer()
         await state.set_state(AdminFlow.event_title)
-        await show(q,"Название события (до 60 символов):",[[("⬅️ Назад","ac:events")]])
+        await show(q,"Название события (до 60 символов):",[[("⬅️ Обратно, брат","ac:events")]])
 
     @dp.message(AdminFlow.event_title)
     async def eventtitle(m,state):
