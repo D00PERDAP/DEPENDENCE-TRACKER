@@ -179,6 +179,7 @@ class AdminAuth(StatesGroup):
     password = State()
     media = State()
     new_person = State()
+    reset_pirate = State()
 
 
 @dp.message(F.text.regexp(r"(?i)^админ(?:\\s+.+)?$"))
@@ -245,9 +246,44 @@ async def admin_panel(q: CallbackQuery):
     await display(q.message, f"🛠 АДМИНКА\\n\\nПользователей: {users}\\nАдминов: {admins}", kb([
         [("📁 Коллекции", "admin:collections")],
         [("📸 Добавить фото/видео", "admin:media")],
+        [("🔑 Сброс кодового слова", "admin:reset_pirate")],
         [("🔄 Обновить", "admin:panel"), ("🚪 Выйти", "admin:logout")],
         [("🏠 Меню", "v2:home")],
     ]))
+
+
+@dp.callback_query(F.data == "admin:reset_pirate")
+async def admin_reset_pirate_prompt(q: CallbackQuery, state: FSMContext):
+    await q.answer()
+    if not is_meme_admin_id(q.from_user.id):
+        return
+    await state.set_state(AdminAuth.reset_pirate)
+    await display(q.message, "🔑 СБРОС КОДОВОГО СЛОВА\\n\\nОтправь Telegram ID пользователя. Сокровища останутся на месте.", kb([
+        [("⬅️ Админка", "admin:panel")],
+    ]))
+
+
+@dp.message(AdminAuth.reset_pirate)
+async def admin_reset_pirate_execute(m: Message, state: FSMContext):
+    if not is_meme_admin_id(m.from_user.id):
+        return
+    value = (m.text or "").strip()
+    if not value.isdecimal():
+        return await m.answer("Укажи числовой Telegram ID пользователя.")
+    uid = int(value)
+    try:
+        with pirate_quests.db() as c:
+            cursor = c.execute("DELETE FROM players WHERE user_id=?", (uid,))
+            changed = cursor.rowcount
+    except Exception as exc:
+        print(f"Pirate password reset: {exc}", flush=True)
+        return await m.answer("Ошибка сброса. Проверь журнал сервиса.")
+    await state.clear()
+    await m.answer(
+        "✅ Кодовое слово сброшено. Сокровища сохранены. Пользователь может снова написать «клады»."
+        if changed else "Пользователь с таким ID в гавани не найден.",
+        reply_markup=kb([[("🛠 Админка", "admin:panel")]])
+    )
 
 
 @dp.callback_query(F.data == "admin:logout")
