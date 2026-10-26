@@ -29,6 +29,7 @@ import v2_data
 import v2_experience
 import ui_manager
 import game_rewards
+import reminder_messages
 import voice_broadcast
 
 load_dotenv()
@@ -1308,7 +1309,7 @@ def choose_meme(category, previous=None, user_id=None):
 
 
 async def reminder_loop(bot):
-    """Opt-in reminders: photos every selected interval, retry on delivery failure.
+    """Opt-in temporary photo reminders, with no chat history pile-up.
 
     Do not silently close a session after 24 hours. User explicitly ends it or
     pauses notifications. Keep next_at unchanged until the photo is sent.
@@ -1318,6 +1319,7 @@ async def reminder_loop(bot):
     while True:
         try:
             current = utcnow()
+            await reminder_messages.cleanup_expired(bot, current)
             with connect() as c:
                 due = c.execute(
                     "SELECT * FROM alerts WHERE next_at<=? ORDER BY next_at LIMIT 50",
@@ -1360,8 +1362,12 @@ async def reminder_loop(bot):
                 try:
                     # Every due reminder gets a fresh generated character, pose,
                     # background, line and unique per-user serial number.
-                    await real_memes.send_bot(bot, uid, session["substance"],
-                                              risk, connect, caption, keyboard)
+                    await reminder_messages.replace_existing(bot, uid)
+                    sent = await real_memes.send_bot(
+                        bot, uid, session["substance"],
+                        risk, connect, caption, keyboard
+                    )
+                    reminder_messages.remember(uid, sent.message_id)
                 except Exception as exc:
                     # Leave an audit trail and try again in one minute, rather
                     # than advancing the timer without delivering anything.
