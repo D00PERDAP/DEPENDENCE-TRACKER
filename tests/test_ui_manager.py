@@ -139,6 +139,22 @@ class ScreenTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(first.message_id, second.message_id)
         self.assertEqual(self.bot.messages[second.message_id], ("voice", "Второе"))
 
+    async def test_cleared_chat_can_forget_stale_screen_on_start(self):
+        await ui_manager.render_photo(self.command, b"fake", "Старое меню")
+        previous = ui_manager._get(101)[0]
+        ui_manager.forget(101)
+        new = await ui_manager.render_photo(self.command, b"fake", "Новое меню")
+        self.assertNotEqual(new.message_id, previous)
+        self.assertEqual(ui_manager._get(101)[0], new.message_id)
+
+    def test_start_resets_only_ui_pointer(self):
+        source = (Path(__file__).resolve().parents[1] / "bot.py").read_text(encoding="utf-8")
+        start = source.split("@dp.message(CommandStart())", 1)[1].split(
+            "@dp.callback_query(", 1
+        )[0]
+        self.assertIn("ui_manager.forget(m.chat.id)", start)
+        self.assertIn("await home(m, m.from_user.id)", start)
+
     async def test_deleted_screen_recovers(self):
         await ui_manager.render_text(self.command, "Главная")
         self.bot.messages.clear()
