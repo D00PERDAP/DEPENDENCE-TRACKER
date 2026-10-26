@@ -198,7 +198,15 @@ class TimerDeliveryTests(unittest.IsolatedAsyncioTestCase):
             v2_data.schedule_alert(c, self.uid, self.sid, 10, self.t - timedelta(minutes=12))
         self.fake_image = Path(self.tmp.name) / "test.jpg"
         Image.new("RGB", (850, 850), "#DBA07E").save(self.fake_image)
-        self.bot_api = type("FakeBot", (), {"send_photo": AsyncMock()})()
+        self.reminder_db_patch = patch.object(
+            bot.reminder_messages, "DB", Path(self.tmp.name) / "reminders.sqlite3"
+        )
+        self.reminder_db_patch.start()
+        self.addCleanup(self.reminder_db_patch.stop)
+        self.bot_api = type("FakeBot", (), {
+            "send_photo": AsyncMock(return_value=type("Sent", (), {"message_id": 99})()),
+            "delete_message": AsyncMock(),
+        })()
 
     async def _single_tick(self):
         async def stop_sleep(*args, **kwargs):
