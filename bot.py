@@ -1045,6 +1045,10 @@ async def review_meme(q: CallbackQuery):
 @dp.message(CommandStart())
 async def start(m: Message, state: FSMContext):
     await state.clear()
+    # Telegram does not notify us when the user clears chat history.
+    # Always create a fresh home screen instead of trying to edit a
+    # previously saved message ID which may no longer exist.
+    ui_manager.forget(m.chat.id)
     with connect() as c:
         c.execute("""INSERT INTO bot_user_profiles VALUES(?,?,?,?)
                      ON CONFLICT(user_id) DO UPDATE SET
