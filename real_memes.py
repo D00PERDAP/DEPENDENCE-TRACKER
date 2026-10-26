@@ -678,7 +678,7 @@ async def send_bot(bot,uid,substance,risk,connect,caption,reply_markup):
     prepared=await asyncio.to_thread(_prepare,connect,uid,substance,risk,False)
     serial,source,payload=prepared[:3]
     joke_id=prepared[3] if len(prepared)>3 else None
-    await bot.send_photo(uid,BufferedInputFile(payload,filename=f"meme-{serial}.jpg"),
-                         caption=caption[:1024],reply_markup=reply_markup)
+    sent = await bot.send_photo(uid,BufferedInputFile(payload,filename=f"meme-{serial}.jpg"),
+                                caption=caption[:1024],reply_markup=reply_markup)
     _record(connect,uid,serial,source,payload,str(risk),joke_id=joke_id)
-    return True
+    return sent
