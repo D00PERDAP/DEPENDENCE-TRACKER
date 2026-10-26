@@ -18,6 +18,7 @@ from aiogram.types import BufferedInputFile
 import context_memes
 import meme_engine
 import real_memes
+import reminder_messages
 import harm_reduction as safety
 import stats_dashboard
 import v2_data as db
@@ -133,7 +134,10 @@ async def followup_loop(bot, connect, kb):
                         [("✅ Стало лучше", "v2:better"), ("😣 Всё ещё тяжело", "v2:impulses")],
                         [("🆘 Нужна помощь", "v2:safety")],
                     ])
-                    await bot.send_message(item["user_id"], text, reply_markup=kb(markup))
+                    uid = item["user_id"]
+                    await reminder_messages.replace_existing(bot, uid)
+                    sent = await bot.send_message(uid, text, reply_markup=kb(markup))
+                    reminder_messages.remember(uid, sent.message_id)
                 except Exception as exc:
                     print(f"Followup delivery: {type(exc).__name__}")
         except Exception as exc:
